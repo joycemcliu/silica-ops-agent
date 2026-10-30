@@ -1,0 +1,8 @@
+# Synthetic example only. Replace references through reviewed configuration.
+environments:
+  - name: test
+    kube_context: local-test
+    namespace: ops-test
+    ssh_target: service/test-ssh
+    credential_ref: env:OPS_TEST_SSH
+    acl_group: test-operators

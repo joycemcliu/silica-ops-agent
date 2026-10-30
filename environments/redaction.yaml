@@ -1,0 +1,4 @@
+# These rules extend mandatory broker rules; they cannot disable the baseline.
+rules:
+  - name: synthetic-session-reference
+    pattern: 'ops_session_[A-Za-z0-9_-]+'
