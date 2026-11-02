@@ -1,139 +1,129 @@
-# ops-agent: Implementation Plan
+# ops-agent: Implementation Plan (minimal version)
 
-Working name: `ops-agent`. Plan for Claude Code. Read the whole file before starting; work phase by phase.
+Plan for Claude Code. Read the whole file before starting; work phase by phase and stop at each acceptance check.
 
 ## 1. Goal
 
-A shared AI helper for the team, hosted on one machine, with three roles:
+A shared AI helper for the team, hosted on one machine, with these roles:
 
-1. **Knowledge**: repo domain knowledge (read repos, compare version tags, learn from merged PRs).
+1. **Knowledge**: repo domain knowledge (read repos, compare version tags, learn from merged PRs). Also usable by each developer locally.
 2. **Diagnose**: production root-cause analysis for ONE selected environment per session, read-only.
-3. **Solver**: propose short-term and long-term fixes; execution needs human approval (later phase, propose-only first).
+3. **Solver**: propose short-term and long-term fixes; execution needs human approval (late phase, propose-only first).
 
-Context: 90+ isolated production environments, each reached by `kubectl port-forward` to the selected environment and then `ssh` with account and password. Internal DB, REST APIs (openapi.yaml available for most microservices) and a Grafana MCP server (already set up) are also available.
+Context: 90+ isolated production environments, each reached by `kubectl port-forward` to the selected environment and then `ssh` with account and password. Internal DB, REST APIs (openapi.yaml for most microservices), Nomad API and a Grafana MCP server (already set up) are also available.
 
-## 2. Core design (do not change without asking)
+## 2. Design principles
 
-```
-Slack -> agent (throwaway container, NO secrets) -> broker -> production (read-only)
-                                                       ^
-                                       checks user, env, role; redacts output; audits
-```
-
-- The **broker** is the only component that holds credentials and touches production. Agents only call the broker (MCP tools + `prodctl` CLI).
-- One **session** = one user + one environment + one role + TTL. The environment comes from the session token. Tools take NO `env` parameter, so the model cannot pick another environment.
-- Read-only is enforced at the lowest layer possible (dedicated Linux account without sudo, read-only DB role on a replica, GET-only API, k8s `get/list/watch` plus `create` on `pods/portforward`), and again in broker validation.
-- Treat all log, DB and command output as **untrusted input** (prompt injection). Redact before returning it.
-- The **executor** (later) is a separate binary with separate credentials. The diagnose path never gets write credentials.
-- The harness (Hermes first, Claude Agent SDK as fallback) must be swappable. Safety lives in the broker, not in the harness.
+- **Safety comes from credential scope, not from prompts.** An instruction like "never read ./secrets" is only a request. Every credential the agent holds must be read-only and per environment:
+  - Nomad ACL token with read policies only
+  - DB role that is read-only, on a replica, with `statement_timeout` set on the role and sensitive columns hidden by grants or views
+  - a dedicated read-only ssh account per environment (no sudo; only the groups needed to read logs)
+  - k8s access limited to `get/list/watch` plus `create` on `pods/portforward`
+  - API tokens that cannot write (see decision 1)
+- **Use native CLIs directly** (`nomad`, `psql`, `curl`, `journalctl` over ssh). Do not write wrapper scripts unless a wrapper adds something the underlying system cannot enforce.
+- **The session binds the environment.** `start-session.sh <env>` exports only that environment's read-only credentials, so the agent never holds credentials for other environments. Treat `OPS_ENV` as a convenience, not a security boundary.
+- **Secrets live outside the repo** (e.g. `/etc/ops-agent/`, owned by a different Unix user than the agent). Only `start-session.sh` reads them.
+- **Treat all log, DB, API and command output as untrusted input** (prompt injection). Mask secrets at the source where possible (e.g. a replace stage in Alloy before logs reach Loki).
+- **Audit lives in the target systems**, using the agent's dedicated identities (ssh auth logs, DB `log_statement` for the agent role, Nomad audit where supported), plus the harness/Slack transcript.
+- The harness (Hermes first; Claude Agent SDK or Claude Code headless as fallback) must stay swappable: put behavior in `AGENTS.md`, skills and scripts, not in harness-specific config.
 
 ## 3. Working rules for Claude Code
 
-- Create `AGENTS.md` in Phase 0 with these rules and keep it the canonical source.
-- When more than one reasonable approach exists, list the options with a small concrete example for each and ask which to pick. Do not choose silently.
-- Script-first: every non-inspection command (build, test, run, lint) goes into a script under `scripts/` or a Makefile target.
-- Never write real credentials, hostnames of production or customer data into the repo. Config holds references only (e.g. a secret path).
-- Small commits per task; each task ends with tests passing and the acceptance check below.
+- Create the root `AGENTS.md` in Phase 0 with these rules and keep it the canonical source.
+- When more than one reasonable approach exists, list the options with a small concrete example each and ask which to pick. Do not choose silently.
+- Script-first: every non-inspection command (build, test, run, lint) goes into `scripts/` or a Makefile target.
+- Never write real credentials, production hostnames or customer data into the repo. Config holds references only. Add `.gitignore` entries and a pre-commit secret scan.
+- Small commits per task; each task ends with tests (shellcheck + bats or similar) and the acceptance check.
 
-## 4. Repository layout (start minimal)
+## 4. Repository layout
 
 ```text
 ops-agent/
-├── AGENTS.md
+├── AGENTS.md                    # shared rules for every agent
 ├── README.md
-├── Makefile
+├── Makefile                     # lint, test
+├── envs.yaml                    # env name, kube_context, namespace, ssh target/port, host key fingerprint, credential file names (no secrets)
+├── agents/
+│   ├── diagnose/AGENTS.md       # how to diagnose, which tools to use, output format
+│   ├── solver/AGENTS.md         # propose-only rules
+│   └── skills/                  # SKILL.md files (diagnose-playbook, compare-version-tags, incident-summary)
 ├── scripts/
-├── broker/            # Go service holding credentials
-│   ├── go.mod
-│   ├── cmd/broker/    # MCP server
-│   ├── cmd/prodctl/   # CLI, same operations
-│   └── internal/{session,authz,envregistry,secrets,tunnel,sshexec,dbquery,apiproxy,versions,redact,audit,mcp}/
-├── agents/            # harness config, prompts, skills
-│   ├── common/skills/
-│   ├── diagnose/
-│   ├── solver/
-│   └── harness/hermes/
-├── knowledge/         # domain notes (markdown)
-└── environments/envs.yaml   # references only
+│   ├── start-session.sh         # start-session.sh <env>: export that env's read-only creds, start the agent
+│   ├── env-ssh.sh               # port-forward + ssh to the session env, run one command
+│   └── deployed-version.sh      # optional: deployed tag per service in the session env
+├── knowledge/                   # domain notes in markdown
+│   ├── index.md
+│   ├── services/<service>.md
+│   └── incidents/               # sanitized post-mortems
+└── tests/                       # bats tests for scripts
 ```
 
-Add `evals/`, `policy/`, `sandbox/`, `executor/`, `runbooks/`, `jobs/` only when their phase starts.
+Add `evals/`, `jobs/`, `rules/` only when their phase starts. Per-session containers and a broker service are later options (section 7).
 
 ## 5. Phases
 
 ### Phase 0: Bootstrap
-- Tasks: repo skeleton, `AGENTS.md`, Makefile targets (`build`, `test`, `lint`), Go module, CI running `go vet` and `go test`.
-- Acceptance: `make test` passes on an empty broker.
+- Skeleton, root `AGENTS.md`, Makefile (`lint` with shellcheck, `test` with bats), `.gitignore`, pre-commit secret scan, `envs.yaml` schema with one test environment.
+- Acceptance: `make lint test` passes.
 
-### Phase 1: Broker MVP (one test environment)
-Build in this order, each with unit tests:
+### Phase 1: Session and access scripts (one test environment)
+1. `start-session.sh <env>`: validate `<env>` against `envs.yaml`; read that environment's credentials from the secrets directory; export only read-only values (`NOMAD_ADDR`, `NOMAD_TOKEN`, `PG*`, ssh account reference, API token) and `OPS_ENV`; start the agent as a dedicated low-privilege Unix user in a fresh process (tmux window or `systemd-run`). Never print credential values.
+2. `env-ssh.sh "<command>"`: start `kubectl port-forward` bound to 127.0.0.1 on a random free port, wait until ready, ssh with the dedicated read-only account and a pinned host key (never disable host key checking), run ONE command with a timeout and output size cap, then always clean up the port-forward (trap on exit). Reject commands containing shell metacharacters (`; | & > < $` backtick `( )` or newlines) and flags that write or delete (e.g. `journalctl --vacuum-*`). Run only allowlisted binaries (journalctl, systemctl status, ps, df, free, ss, uptime, dmesg, limited ls/cat). Pipes and filtering happen locally. Apply a small regex redaction (passwords, tokens, private keys, connection strings) to output before printing.
+3. `deployed-version.sh` (optional): report deployed tags per service in the session environment.
 
-1. **`envregistry`**: load `environments/envs.yaml`. Fields: `name`, `kube_context`, `namespace`, `ssh_target` (host or service), `credential_ref`, `acl_group`. Validate on load; reject unknown fields.
-2. **`secrets`**: interface `Get(ref) -> string`. First implementation reads from a file or environment variable; keep the interface ready for Vault. Never log values.
-3. **`audit`**: structured JSON events (who, session, env, tool, arguments, result size, duration, error) to stdout. Redact before writing.
-4. **`redact`**: scrub passwords, tokens, private keys, bearer headers, connection strings, and email/phone patterns. Rules in a config file. Apply to all tool output.
-5. **`session`** and **`authz`**: signed session token carrying user, env, role, expiry. `authz` maps user/group to allowed envs and tools. Reject expired or mismatched tokens.
-6. **`tunnel`**: start `kubectl port-forward` on demand for the session's env, bind 127.0.0.1 on a random free port, idle TTL, max concurrency, clean teardown on exit or crash. (Decision to confirm with me: shell out to `kubectl` vs `client-go`; default is `kubectl` for v1.)
-7. **`sshexec`**: connect through the tunnel using the agent's dedicated read-only account. Execute only commands that pass the allowlist validator:
-   - parse into argv; reject any shell metacharacters (`; | & > < $ ` ( )` and newlines),
-   - allowlist binary AND permitted flags (e.g. `journalctl`, `systemctl status|is-active`, `ps`, `df`, `free`, `ss`, `uptime`, `dmesg`, `ls`, `cat` within allowed paths),
-   - reject flags that write or delete (e.g. `journalctl --vacuum-*`),
-   - output size and time limits.
-   Pipes and filtering happen locally in the agent sandbox, not on the host.
-8. **`mcp`** + **`cmd/broker`**: MCP server exposing:
-   - `get_logs(host, unit, since, until, lines)`
-   - `run_readonly(host, argv[])`
-   - `list_hosts()`
-   - `whoami()` (session env, role, expiry)
-9. **`cmd/prodctl`**: CLI mirroring the same operations (`prodctl logs ...`, `prodctl run ...`), using the session token from an environment variable.
+Acceptance (test environment or fakes: containerized sshd and a stub `kubectl`): an allowed command and journal logs work; a disallowed command is rejected; the session cannot reach another environment's credentials; a secret seeded in output is redacted; no orphan port-forward remains after success, failure or timeout.
 
-Acceptance: against one test environment (or a local fake: containerized sshd + a stub `kubectl`), a session can fetch journal logs and run an allowlisted command; non-allowlisted commands, cross-environment attempts and expired tokens are rejected; audit shows every call; a secret seeded in output is redacted.
+### Phase 2: Agent layer (spike)
+- Run the harness (Hermes first) in a fresh process under the dedicated Unix user, with a Slack gateway restricted to an allowlist of users. Hermes's security notes advise against its default local terminal backend when handling untrusted input (and log content is untrusted), so ask me whether to use its Docker backend for this spike or accept the local backend under the dedicated low-privilege user.
+- Add deny rules in the harness for reading the secrets directory and for dumping the environment (`env`, `printenv`), as a second layer only.
+- Write `agents/diagnose/AGENTS.md` and skills. Disable or gate the harness's self-learning for the diagnose role; skills change only through PRs.
+- Acceptance: from Slack, a user starts a session for the test environment and the agent diagnoses a seeded problem using native CLIs and `env-ssh.sh`; target-system logs show the agent's identity and actions.
+- Decision gate: if the harness cannot give acceptable isolation, write a short ADR and ask me before switching harness.
 
-### Phase 2: More read-only data sources
-- **`dbquery`**: tool `query_db(database, sql)`. Single statement only, `SELECT` only (parse, don't regex), statement timeout, row limit, column masking from config. Must also connect with a read-only DB role on a replica.
-- **`apiproxy`**: tool `call_api(service, path, query)`. GET only; validate path and parameters against the service's `openapi.yaml`; response size limit.
-- **`versions`**: tools `get_deployed_version(service)` and `diff_tags(repo, from, to)` (uses mirrored git repos).
-- **Grafana**: keep the existing MCP server as is for now; later put an env-scoped proxy in front.
-- Acceptance: each tool has tests for rejection cases (writes, multi-statement SQL, non-GET, unknown path).
+### Phase 3: Knowledge
+- `knowledge/` layout as above. On PR merge, a CI job asks the agent to draft a knowledge update and opens a PR (never commits directly).
+- Package `knowledge/` and skills so developers can use them locally with their own agent.
 
-### Phase 3: Agent layer (spike with Hermes)
-- Run Hermes with the **Docker terminal backend** (never `local`) and a Slack gateway with a strict user allowlist.
-- Session launcher script: on request (`/diagnose <env>`), mint a session token, start one throwaway container (git, ripgrep, jq, python, `prodctl`; no secrets; network only to the broker), destroy it at the end.
-- `agents/diagnose/`: system prompt, read-only toolset, skills (`diagnose-playbook`, `compare-version-tags`, `write-incident-summary`).
-- Restrict or disable the self-learning loop for the diagnose role; skills change only through PRs.
-- Acceptance: from Slack, a user starts a session on the test environment, the agent answers using broker tools, and the audit log shows the full trail.
-- Decision gate: if Hermes cannot give per-session isolation and per-user identity, write an ADR and switch to the Agent SDK with a thin Slack adapter. Ask me before switching.
+### Phase 4: Evals and timing
+- `evals/cases/<incident>/` with `evidence/`, `question.md`, `expected-root-cause.md`; a runner that replays a case and scores correctness.
+- Record time to first useful finding and whether the diagnosis was correct. Seed with 10 past incidents.
+- Go/no-go bar (confirm the numbers with me), e.g. correct or clearly useful finding in under 10 minutes on most cases; otherwise keep the agent for post-incident analysis only.
 
-### Phase 4: Knowledge
-- `knowledge/` layout: `index.md`, `glossary.md`, `services/<service>.md`, `incidents/`.
-- Job triggered on PR merge: summarize the PR into a proposed knowledge update and open a PR to `knowledge/` (never write directly).
-- The same package (skills + knowledge) is distributable to developers for local use.
+### Phase 5: Early warning (after Phase 4)
+- Detection stays deterministic: Loki/Mimir rules and fleet comparison routed through Alertmanager. The agent only triages flagged events: groups alerts, checks recent deploys, matches past incidents, collects evidence, and posts a short Slack summary with a confidence level.
+- Start in shadow mode (private channel); measure lead time versus tickets and precision.
+- Rule mining: the agent proposes rules from past incidents, backtests them over history across many environments, rejects noisy ones, and opens a PR for human review. Rules run in shadow mode before notifying anyone. Never auto-deploy rules.
 
-### Phase 5: Evals
-- `evals/cases/<incident>/` with `evidence/`, `question.md`, `expected-root-cause.md`; a runner that replays the case against the agent and scores it.
-- Seed with 10 past incidents. Use results to judge prompts and harness choice.
+### Phase 6: Solver (outline only, do not build until I approve)
+- Propose-only: short-term and long-term options with a dry-run plan.
+- Execution later via vetted parameterized runbook scripts with Slack approval, run by a separate identity with its own credentials, never by the diagnose agent.
 
-### Phase 6: Solver and executor (outline only, do not build until I approve)
-- Solver stays propose-only: produces short-term and long-term options with a dry-run plan.
-- Executor: separate binary and credentials; runs only approved, typed actions or runbook scripts pinned by hash, with dry-run first, Slack approval verification and full audit.
+## 6. Decisions to make with me (ask; give options with small examples)
 
-## 6. Security invariants (add as tests)
+1. **API tokens.** Can internal APIs issue read-only tokens? If yes, use `curl` directly. If a token also allows POST/DELETE, add a small GET-only `api-get.sh` that checks paths against openapi.yaml.
+2. **Secret isolation.** Options: (a) `start-session.sh` runs as the secrets owner and drops privileges to the agent user; (b) a narrow `sudo` rule; (c) Vault with short-lived tokens later.
+3. Dedicated read-only agent account on each environment, or reuse the shared one (dedicated is strongly preferred). Can ssh certificates or keys replace passwords?
+4. Is the ssh target a host behind a bastion pod, or a pod itself?
+5. Who may use the agent: if everyone in the Slack channel may see all environments, shared read-only access is acceptable; otherwise add per-user environment limits (see section 7).
+6. Expected number of concurrent sessions, and the Phase 4 go/no-go numbers.
 
-1. No tool accepts an environment parameter; the session decides.
-2. A token for env A can never produce a call to env B.
-3. No secret value appears in logs, tool output or prompts.
-4. Every tool call produces exactly one audit event.
-5. Any command not on the allowlist is rejected, not executed.
-6. Agent containers have no credentials and no route to production except through the broker.
+## 7. Accepted trade-offs, and when to add more
 
-## 7. Open questions (ask me; do not assume)
+- The agent can read its own environment variables, so read-only tokens enter the model's context. Acceptable only if they are truly read-only and fine to send to the model provider.
+- No automatic output scrubbing except in the ssh path and at log ingestion.
+- Sensitive DB columns must be protected by grants or views.
+- Add **per-session containers** (mount only that environment's credentials) if you need per-user environment limits or concurrent sessions must not share a filesystem.
+- Add a **broker service** only if credentials cannot be scoped to read-only, per-user audit or approval trails are required, or script complexity (tunnel pooling, many concurrent sessions) becomes hard to maintain.
+- Add wrapper scripts (DB, Nomad, redaction) back only if one of the trade-offs above becomes unacceptable.
 
-- Can we create a dedicated read-only agent account on each environment, or must the shared one be reused?
-- Where do secrets live today (Vault or other)?
-- Is the ssh target a host reached through a bastion pod, or a pod itself?
-- Expected number of concurrent incident sessions?
-- Which Go MCP SDK to use (decide with options and examples).
+## 8. Checks to add as tests
 
-## 8. Definition of done for the first milestone
+1. A session for environment A holds no credentials for environment B.
+2. Disallowed commands in `env-ssh.sh` are rejected; metacharacters and write flags are blocked.
+3. No secret value appears in `env-ssh.sh` output or in the repo.
+4. No orphan `kubectl port-forward` processes remain.
+5. The agent user cannot read the secrets directory.
 
-Phases 0 to 3 complete on one test environment, with invariants tested, audit visible in Loki, and one replayed past incident diagnosed correctly from Slack.
+## 9. First milestone
+
+Phases 0 to 2 complete on one test environment, with the checks above passing and one seeded or replayed incident diagnosed from Slack.

@@ -1,9 +1,0 @@
-# Synthetic user identifiers. Replace with verified Slack IDs via review.
-users:
-  test-operator:
-    groups: [test-operators]
-    roles: [diagnose]
-groups:
-  test-operators:
-    environments: [test]
-    tools: [whoami, list_hosts, get_logs, run_readonly]
