@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository_root=$(git rev-parse --show-toplevel)
+export PATH="$repository_root/.tools/bin:$PATH"
+if ! command -v gitleaks >/dev/null 2>&1; then
+    printf '%s\n' 'gitleaks is required; run make dev-tools before committing.' >&2
+    exit 1
+fi
+exec gitleaks git --pre-commit --staged --redact --no-banner

@@ -1,0 +1,14 @@
+schema_version: 1
+environments:
+  test:
+    kube_context: ops-agent-test
+    namespace: ops-agent-test
+    ssh:
+      target: pod/ssh-test
+      port: 22
+      host_key_fingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    credentials:
+      nomad: test/nomad.env
+      postgres: test/postgres.env
+      ssh: test/ssh.env
+      api: test/api.env

@@ -9,3 +9,9 @@ coverage.out
 .aws/
 .codex/
 .agents/
+secrets/
+credentials/
+*.kubeconfig
+known_hosts
+*.log
+__pycache__/

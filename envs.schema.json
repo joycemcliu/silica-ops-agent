@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ops-agent environment references",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "environments"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "environments": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]{0,62}$"},
+      "additionalProperties": {"$ref": "#/$defs/environment"}
+    }
+  },
+  "$defs": {
+    "reference": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*\\.env$"
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kube_context", "namespace", "ssh", "credentials"],
+      "properties": {
+        "kube_context": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$"},
+        "namespace": {"type": "string", "maxLength": 63, "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
+        "ssh": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target", "port", "host_key_fingerprint"],
+          "properties": {
+            "target": {"type": "string", "pattern": "^(pod|service)/[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "host_key_fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"}
+          }
+        },
+        "credentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nomad", "postgres", "ssh", "api"],
+          "properties": {
+            "nomad": {"$ref": "#/$defs/reference"},
+            "postgres": {"$ref": "#/$defs/reference"},
+            "ssh": {"$ref": "#/$defs/reference"},
+            "api": {"$ref": "#/$defs/reference"}
+          }
+        }
+      }
+    }
+  }
+}
