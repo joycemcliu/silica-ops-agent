@@ -9,6 +9,7 @@ lint:
 
 test:
 	bats tests
+	python3 -m unittest discover -s tests -p '*_test.py'
 
 secrets:
 	bash scripts/scan-secrets.sh

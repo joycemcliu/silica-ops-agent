@@ -23,9 +23,14 @@ This is the canonical, harness-independent policy for this repository. Read
 - Credentials, not prompts, enforce safety. Use read-only, environment-specific
   Nomad, database, SSH, Kubernetes, and API identities. `OPS_ENV` is metadata,
   not an authorization boundary.
-- Secrets live outside the repository, owned by a different Unix user from the
-  agent. Only the session launcher may read them. Launch a fresh process as a
-  dedicated low-privilege user with only the selected environment's credentials.
+- No session launcher is implemented, per the owner's Phase 1 scope change.
+  The operator or external runtime must supply only one environment's read-only
+  credentials to the dedicated low-privilege agent process. `OPS_ENV` alone
+  cannot isolate credentials, files, Kubernetes access, or concurrent sessions.
+- Secrets live outside the repository. Internal API access is included in
+  Phase 1, but its write-capable token must remain with a separate credential
+  owner behind a GET-only, OpenAPI-checked boundary, never in the agent process.
+  Choosing a protected local helper or external gateway requires owner input.
 - Use a read-only database role on a replica, with role-level statement timeout
   and sensitive data protected by grants or views. SSH has no sudo. Kubernetes
   access is get/list/watch plus create on pods/portforward only.
