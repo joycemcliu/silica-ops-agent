@@ -1,0 +1,51 @@
+name: command-guard-local
+services:
+  gateway:
+    image: ${GUARD_GATEWAY_IMAGE:-command-guard-gateway:local}
+    container_name: command-guard-gateway-local
+    user: "${GUARD_UID:?Set GUARD_UID}:${GUARD_GID:?Set GUARD_GID}"
+    group_add:
+      - "${GUARD_AGENT_GID:?Set GUARD_AGENT_GID}"
+      - "${GUARD_OPERATOR_GID:?Set GUARD_OPERATOR_GID}"
+      - "${GUARD_DOCKER_GID:?Set GUARD_DOCKER_GID}"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1
+    stop_grace_period: 20s
+    env_file: ${GUARD_CONFIG_DIR:?Set GUARD_CONFIG_DIR}/service.env
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+    volumes:
+      - type: bind
+        source: /
+        target: /hostfs
+        read_only: true
+        bind:
+          propagation: rslave
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${GUARD_CONFIG_DIR}:/etc/command-guard:ro
+      - ${GUARD_STATE_DIR:?Set GUARD_STATE_DIR}:${GUARD_STATE_DIR}
+      - ${GUARD_SOCKET_DIR:?Set GUARD_SOCKET_DIR}:/run/command-guard
+    command:
+      - --socket
+      - /run/command-guard/agent.sock
+      - serve
+      - --policy
+      - /etc/command-guard/policy.yaml
+      - --agent-group
+      - "${GUARD_AGENT_GID}"
+      - --operator-group
+      - "${GUARD_OPERATOR_GID}"
+      - --audit
+      - ${GUARD_STATE_DIR}/audit.jsonl
+    healthcheck:
+      test: [CMD, python, -m, command_guard.container, health]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

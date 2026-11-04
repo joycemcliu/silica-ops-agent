@@ -15,3 +15,6 @@ credentials/
 known_hosts
 *.log
 __pycache__/
+
+.command-guard/
+.pytest-tmp/

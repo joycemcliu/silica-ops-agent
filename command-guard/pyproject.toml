@@ -1,0 +1,27 @@
+[project]
+name = "command-guard"
+version = "0.1.0"
+description = "Approval gateway for AI shell commands with deterministic rules and Docker isolation"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0.2,<7"]
+
+[project.scripts]
+command-guard = "command_guard.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--basetemp=.pytest-tmp"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+

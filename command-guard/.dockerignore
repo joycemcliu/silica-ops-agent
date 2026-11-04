@@ -1,0 +1,12 @@
+.venv
+.git
+.pytest_cache
+.ruff_cache
+__pycache__
+**/__pycache__
+dist
+*.egg-info
+.env
+.env.*
+**/service.env
+**/compose.env

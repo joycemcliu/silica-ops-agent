@@ -1,0 +1,3 @@
+Moby Docker default seccomp profile
+https://github.com/moby/profiles/tree/4b8214fc4971e06172938a1f1554ccff6647ee80
+Licensed under Apache-2.0 (see LICENSE).
