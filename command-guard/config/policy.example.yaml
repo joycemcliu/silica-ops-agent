@@ -1,0 +1,38 @@
+# Install the active policy outside the AI's accessible filesystem.
+protected_paths:
+  - /var/lib/docker
+  - /var/lib/containerd
+
+# Expand globs at service startup. Restart after adding users or changing policy.
+# These are examples, not automatic discovery of every sensitive file.
+sensitive_paths:
+  - /root
+  - /home/*/.ssh
+  - /home/*/.hermes
+  - /home/*/.aws
+  - /home/*/.kube
+  - /home/*/.config
+  - /home/*/.gnupg
+  - /home/*/.local/share/keyrings
+  - /home/*/.netrc
+  - /home/*/.git-credentials
+  - /home/*/.bash_history
+  - /home/*/.zsh_history
+  - /home/*/workplace/*/.env
+  - /home/*/workplace/*/.env.*
+  - /home/*/workplace/*/.aws
+  - /home/*/workplace/*/secrets
+  - /home/*/workplace/*/credentials
+  - /etc/shadow
+  - /etc/gshadow
+  - /etc/ssl/private
+  - /etc/ssh
+
+confidence_threshold: 0.95
+approval_ttl: 300
+timeout: 30
+model: jev-latest
+docker: /usr/bin/docker
+docker_image: python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+# Project setup replaces this placeholder with the absolute project-local state path.
+state_dir: /replace/with/project/.command-guard/state

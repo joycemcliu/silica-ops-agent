@@ -1,0 +1,6 @@
+name: command-guard
+version: 0.2.0
+description: Mandatory command gateway and Docker execution for a selected Hermes profile
+kind: backend
+capabilities:
+  - tools.override
