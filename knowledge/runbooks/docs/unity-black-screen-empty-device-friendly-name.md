@@ -7,7 +7,7 @@ status: draft
 last_verified:
 applies_to:
   dll_sha256: 5EF7E3F251B171ACEEF91A573366F611FE4EA2C33045C260F046AF0597A2E253
-source_incidents: [../incidents/2026-11-02-holodeck-3.md]
+source_incidents: [../../incidents/2026-11-02-holodeck-3.md]
 ---
 
 ## Symptoms
@@ -22,9 +22,9 @@ The binary hash in `applies_to` identifies the inspected `rb-minput.dll`. With a
 
 Run on the affected Windows server. These steps require no API credentials. The new script invocations are collected under **Not yet verified**, because they have not been executed end-to-end; the incident used native diagnostics. Do not equate proposed commands with historical evidence.
 
-1. **Scan all present device classes**, using [find-empty-friendlyname.ps1](scripts/find-empty-friendlyname.ps1) and the proposed command below. MultiInput scans beyond USB/input devices. Bad: an existing string-valued `DEVPKEY_Device_FriendlyName` is empty. Good: no candidates and no query failures. A scan failure is inconclusive; candidates alone do not prove the cause. Never bulk-repair results.
+1. **Scan all present device classes**, using [find-empty-friendlyname.ps1](../scripts/find-empty-friendlyname.ps1) and the proposed command below. MultiInput scans beyond USB/input devices. Bad: an existing string-valued `DEVPKEY_Device_FriendlyName` is empty. Good: no candidates and no query failures. A scan failure is inconclusive; candidates alone do not prove the cause. Never bulk-repair results.
 2. **Confirm the blocked native path.** Capture a hang dump/thread stack with the site's approved Windows debugging tools. Bad: the Unity main thread stays in `rb_minput_create` and repeated SetupAPI enumeration; confirm the empty-name branch revisits the same record without advancing the index. Good: enumeration finishes, or the thread is elsewhere—investigate that path. No exact dump command is prescribed because the original capture invocation was not retained.
-3. **Inspect one confirmed candidate**, passing its full `InstanceId` to the read-only `Inspect` action in [fix-empty-friendlyname.ps1](scripts/fix-empty-friendlyname.ps1). Bad: property `12` (`SPDRP_FRIENDLYNAME`), type `REG_SZ` (`1`), bytes `00 00` / Base64 `AAA=`. Good for this failure mode: the property is absent or contains a nonempty name. Other types/bytes require investigation, not weaker guards.
+3. **Inspect one confirmed candidate**, passing its full `InstanceId` to the read-only `Inspect` action in [fix-empty-friendlyname.ps1](../scripts/fix-empty-friendlyname.ps1). Bad: property `12` (`SPDRP_FRIENDLYNAME`), type `REG_SZ` (`1`), bytes `00 00` / Base64 `AAA=`. Good for this failure mode: the property is absent or contains a nonempty name. Other types/bytes require investigation, not weaker guards.
 4. **Map the candidate to a human-visible device.** Run `devmgmt.msc`; open the candidate's class, then **Properties → Details → Device instance path**. Match the ID from the scan. Inspect **Friendly name** and **Device description**. The description must provide a nonempty fallback. A zero-size disk was one incident's trigger, not a required symptom. A blank GUI field alone does not distinguish an absent property from an existing empty one.
 
 An **absent override** permits fallback to `DEVPKEY_Device_DeviceDesc` / `SPDRP_DEVICEDESC` (property `0`). An **existing empty override** reaches the defective branch. Preserve that distinction throughout diagnosis and validation.
@@ -38,11 +38,11 @@ An **absent override** permits fallback to `DEVPKEY_Device_DeviceDesc` / `SPDRP_
 | Photon/network failure | Independent endpoint failures and connection errors while Unity continues processing | Recorded hang was in MultiInput; Photon progressed after the metadata repair. A final Photon log alone is insufficient |
 | Display/capture problem | Game initializes and renders locally while the operator feed alone is black | Recorded case affected both displays and had a blocked game main thread |
 
-The [source incident](../incidents/2026-11-02-holodeck-3.md) contains the observations behind this table. The library is RavingBots MultiInput, not Rewired.
+The [source incident](../../incidents/2026-11-02-holodeck-3.md) contains the observations behind this table. The library is RavingBots MultiInput, not Rewired.
 
 ## Remediation (HUMAN executes; agent never runs)
 
-Use [fix-empty-friendlyname.ps1](scripts/fix-empty-friendlyname.ps1) in elevated PowerShell only after triage confirms the device and native mechanism. `-Id` is mandatory and must come from the current scan. Both mutation modes request confirmation; `-WhatIf` permits a read-only preview.
+Use [fix-empty-friendlyname.ps1](../scripts/fix-empty-friendlyname.ps1) in elevated PowerShell only after triage confirms the device and native mechanism. `-Id` is mandatory and must come from the current scan. Both mutation modes request confirmation; `-WhatIf` permits a read-only preview.
 
 1. **Stop the affected game through the normal operator workflow.** Risk: interrupts the current game. First preserve its logs/dump; rollback for this operational action is a normal relaunch. Live metadata removal previously caused a native input exception, so prefer a stopped game.
 2. **Repair one device.** Choose a new backup file in an existing writable directory. The script verifies exact type/bytes, a usable description fallback, and a new backup's contents; re-reads the property; then removes only the empty override using `SetupDiSetDeviceRegistryPropertyW(..., 12, NULL, 0)`. Risk: changes device metadata. Backup: original identity/type/bytes in the selected file. Rollback: the command below. Do not disable/uninstall the device or modify storage.

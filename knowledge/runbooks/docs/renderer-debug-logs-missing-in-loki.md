@@ -8,7 +8,7 @@ last_verified:
 applies_to:
   logger: shared Go zerolog logger and renderer Terraform templates
 source_incidents:
-  - ../incidents/2026-11-03-renderer-debug-logs-missing.md
+  - ../../incidents/2026-11-03-renderer-debug-logs-missing.md
 ---
 
 ## Symptoms
@@ -17,9 +17,9 @@ New renderer debug messages cannot be found in Grafana Loki. Adding debug calls 
 
 ## Triage (read-only, in order)
 
-1. Inspect [renderer configuration wiring](../apps/video-dge/terraform-module/renderer.tf) and [the execute task](../apps/video-dge/terraform-module/templates/renderer.hcl.tftpl). `renderer.log_level` supplies `LOG_LEVEL`; [the variable](../apps/video-dge/terraform-module/variables.tf) defaults to `info`. The separate AE install cron does not configure this logger.
-2. Inspect [the shared logger](../libs/go/log/logger.go). It parses the configured severity case-insensitively and writes JSON to stderr. [AE output scanning](../apps/video-dge/render/internal/adapters/aftereffect/cmd/scan_log.go) relogs child stdout as debug messages prefixed `AE Log:`.
-3. Inspect [allocation collection](../apps/monitoring/terraform-module/templates/grafana-alloy/configs/logs/allocation.alloy). It collects stdout and stderr, with no renderer severity filter. `level` remains in application JSON; `task` is structured metadata. An absent indexed level/task label does not establish that the log is absent.
+1. Inspect [renderer configuration wiring](../../apps/video-dge/terraform-module/renderer.tf) and [the execute task](../../apps/video-dge/terraform-module/templates/renderer.hcl.tftpl). `renderer.log_level` supplies `LOG_LEVEL`; [the variable](../../apps/video-dge/terraform-module/variables.tf) defaults to `info`. The separate AE install cron does not configure this logger.
+2. Inspect [the shared logger](../../libs/go/log/logger.go). It parses the configured severity case-insensitively and writes JSON to stderr. [AE output scanning](../../apps/video-dge/render/internal/adapters/aftereffect/cmd/scan_log.go) relogs child stdout as debug messages prefixed `AE Log:`.
+3. Inspect [allocation collection](../../apps/monitoring/terraform-module/templates/grafana-alloy/configs/logs/allocation.alloy). It collects stdout and stderr, with no renderer severity filter. `level` remains in application JSON; `task` is structured metadata. An absent indexed level/task label does not establish that the log is absent.
 4. Perform the live checks under “Not yet verified.” Static code does not confirm deployed settings or the running binary.
 
 ## Likely causes

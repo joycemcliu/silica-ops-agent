@@ -2,14 +2,14 @@
 title: Renderer debug messages missing from Grafana Loki
 incident_date: 2026-11-03
 timezone: Asia/Hong_Kong
-runbook: ../runbooks/renderer-debug-logs-missing-in-loki.md
+runbook: ../runbooks/docs/renderer-debug-logs-missing-in-loki.md
 ---
 
 ## Report and scope
 
 The operator reported debug messages missing from Grafana Loki, then clarified that the source is `video-dge/renderer`, not Unity. The initial Unity investigation followed the wrong pipeline and does not diagnose this report. The later attachment was the AE install cron template. Environment, allocation, effective runtime log level, expected message, and Grafana query remain unspecified.
 
-Reusable procedure: [Renderer debug logs missing in Loki](../runbooks/renderer-debug-logs-missing-in-loki.md).
+Reusable procedure: [Renderer debug logs missing in Loki](../runbooks/docs/renderer-debug-logs-missing-in-loki.md).
 
 ## Evidence ledger
 
