@@ -26,7 +26,7 @@ services:
         target: /hostfs
         read_only: true
         bind:
-          propagation: rslave
+          propagation: ${GUARD_BIND_PROPAGATION:-rslave}
       - /var/run/docker.sock:/var/run/docker.sock
       - ${GUARD_CONFIG_DIR}:/etc/command-guard:ro
       - ${GUARD_STATE_DIR:?Set GUARD_STATE_DIR}:${GUARD_STATE_DIR}

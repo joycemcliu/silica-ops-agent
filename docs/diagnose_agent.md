@@ -11,11 +11,6 @@ Troubleshoot Silica environments. Gather evidence, explain the likely cause, and
 
 ## Repositories
 
-```text
-SILICA_REPO=/home/silica/workplace/silica
-SILICA_ENV_REPO=/home/silica/workplace/silica-environments
-```
-
 - `SILICA_REPO` contains the platform source code.
 - `SILICA_ENV_REPO` contains deployments. Each store-code directory is an isolated deployment.
 - Read `<SILICA_ENV_REPO>/<store-code>/AGENTS.md` for store-specific instructions.
@@ -47,8 +42,13 @@ Ports: Nomad `4646`, Consul `8500`, PostgreSQL `5432`, and platform web access `
 
 ### Logs, metrics, and traces
 
+- Before connecting to either Grafana MCP server, use `scripts/grafana-mcp-forward.sh start` to enable forwarding for both environments. Follow the permissions above before opening tunnels.
+- Use `scripts/grafana-mcp-forward.sh status` to check forwarding. The script prints the MCP endpoints and required HTTP Host headers when started:
+  - Dev: `http://grafana_mcp_ops_dev:8000/mcp`, with `Host: localhost:60007`.
+  - Prod: `http://grafana_mcp_ops_prod:8000/mcp`, with `Host: localhost:60008`.
 - Dev environment: `sandbox_dev_grafana` MCP server.
 - Prod environment: `sandbox_prod_grafana` MCP server.
+- When finished, use `scripts/grafana-mcp-forward.sh stop` only if forwarding was started for this session. Leave pre-existing forwarding running.
 
 ## Workflow
 

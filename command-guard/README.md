@@ -41,6 +41,16 @@ Classification uses local deterministic rules. No TypeSafe account, API key, or
 external assessment request is needed. The private `.command-guard` directory is
 ignored by Git.
 
+Set `GUARD_BIND_PROPAGATION` in `.command-guard/config/compose.env` to configure
+the gateway's `/hostfs` bind propagation (default: `rslave`). For example:
+
+```dotenv
+GUARD_BIND_PROPAGATION=rprivate
+```
+
+Apply the change with `./command-guard.sh restart`. You can also override it for
+one invocation: `GUARD_BIND_PROPAGATION=rprivate ./command-guard.sh restart`.
+
 To configure a new Hermes profile:
 
 ```bash
