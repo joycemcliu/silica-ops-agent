@@ -16,26 +16,6 @@ Troubleshoot Silica environments. Gather evidence, explain the likely cause, and
 
 Paths below are relative to this ops-agent repository.
 
-## Local diagnosis environment
-
-Use a dedicated Python 3.10+ virtual environment at `${HOME}/.local/share/silica-ops-agent/venvs/diagnose` for Python diagnostic tools, including the WinRM client. Reuse it across diagnosis sessions.
-
-From this repository's root, create it if missing and install the pinned WinRM dependency using `uv`:
-
-```bash
-DIAGNOSE_VENV="${HOME}/.local/share/silica-ops-agent/venvs/diagnose"
-if [[ ! -f "${DIAGNOSE_VENV}/pyvenv.cfg" || ! -x "${DIAGNOSE_VENV}/bin/python" ]]; then
-  uv venv --python python3 "${DIAGNOSE_VENV}"
-fi
-uv pip install --python "${DIAGNOSE_VENV}/bin/python" -r scripts/requirements-windows-winrm.txt
-uv pip check --python "${DIAGNOSE_VENV}/bin/python"
-"${DIAGNOSE_VENV}/bin/python" scripts/windows-winrm-session.py --help
-```
-
-Run Python diagnostic tools with this venv's explicit `bin/python` path; activation is optional. `uv` manages packages directly, so the venv does not need `pip` or `ensurepip`. Their absence does not mean the venv is missing or unusable. Use this setup for diagnosis instead of `scripts/setup-windows-winrm.sh`, which manages the separate `winrm` venv.
-
-Local venv creation and dependency installation follow the permissions above; reuse existing authorization. Once authorized, using `uv` as documented here needs no separate approval. If `uv` or Python 3.10+ is unavailable, report the missing prerequisite before attempting system changes.
-
 ## Environment access
 
 Stores `dev`, `devlatest`, `qa`, and `staging` use the **dev** environment. All other stores use **prod**.
@@ -65,7 +45,7 @@ This workflow is supported only for **prod** stores. Do not use it for `dev`, `d
 
 - Use `scripts/store-sshuttle.sh STORE_CODE` to reach Linux and Windows PCs on a production store's LAN through a node. Store codes are case-insensitive; no store-directory working location is required. Add `--node N` to select a specific node; otherwise the store SSH service selects a backing node. Follow the tunnel permissions above.
 - Linux PCs: use `ssh USER@LINUX_IP` from WSL for an interactive shell, or `ssh USER@LINUX_IP 'COMMAND'` to run diagnostic or approved administration commands through the tunnel.
-- Windows PCs: use `scripts/windows-winrm-session.py --host WINDOWS_IP --command 'POWERSHELL'` from WSL for diagnostic or approved administration commands. Run it with `${HOME}/.local/share/silica-ops-agent/venvs/diagnose/bin/python` from the local diagnosis environment above. Omit `--command` for a persistent PowerShell session.
+- Windows PCs: use `scripts/windows-winrm-session.py --host WINDOWS_IP --command 'POWERSHELL'` from WSL for diagnostic or approved administration commands. Run it with `${HOME}/.local/share/silica-ops-agent/venvs/diagnose/bin/python` from the [shared Python environment](../AGENTS.md#shared-python-environment). Omit `--command` for a persistent PowerShell session.
 - Confirm the target PC belongs to the selected store and its IP is within the forwarded LAN CIDR. Remote commands follow the same permissions as local commands: read-only checks are allowed; changes require approval unless already authorized for the session.
 - Close SSH and WinRM sessions when finished. Stop sshuttle only if started for this session; leave pre-existing tunnels running.
 

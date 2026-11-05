@@ -49,7 +49,7 @@ Run Python commands and tools with this venv's explicit `bin/python` path; activ
 "${HOME}/.local/share/silica-ops-agent/venvs/diagnose/bin/python" scripts/windows-winrm-session.py --help
 ```
 
-Use `uv pip` commands with `--python` pointing to this interpreter when managing dependencies. See [Windows WinRM usage](../windows-winrm.md) for client instructions.
+Use `uv pip` commands with `--python` pointing to this interpreter when managing dependencies. See [Windows WinRM usage](windows-winrm.md) for client instructions.
 
 ## Troubleshooting
 

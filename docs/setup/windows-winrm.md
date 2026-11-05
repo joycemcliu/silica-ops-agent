@@ -1,4 +1,10 @@
-# Production Windows diagnostics through WinRM
+---
+title: "Set up production Windows access through WinRM"
+description: "Configure the shared WSL client, Windows remoting, credentials, and a production store tunnel for PowerShell access."
+tags: [windows, winrm, powershell, wsl, sshuttle, setup]
+---
+
+# Set up production Windows access through WinRM
 
 This workflow is supported only for **prod** stores. Do not use it for `dev`, `devlatest`, `qa`, or `staging`.
 
@@ -8,13 +14,13 @@ Run a WinRM client in WSL to execute PowerShell on a Windows PC in a production 
 WSL client → sshuttle → production Linux node → Windows LAN IP:5985
 ```
 
-The client runs locally in WSL; no Python packages or WinRM client are installed on the node. sshuttle forwards TCP for the store CIDR, rather than bridging the whole network. The Windows address must fall within `.network.cidr` in the store's `infra-cluster.json`, and the selected node must be able to reach it. This production tunnel workflow does not apply to dev stores; see [environment access](diagnose_agent.md#environment-access).
+The client runs locally in WSL; no Python packages or WinRM client are installed on the node. sshuttle forwards TCP for the store CIDR, rather than bridging the whole network. With an explicit store code, the script reads `SUBNET_ID` from the production socat SSH StatefulSet and forwards `10.SUBNET_ID.0.0/16`. The Windows address must fall within that CIDR, and the selected node must be able to reach it. This production tunnel workflow does not apply to dev stores; see [environment access](../diagnose_agent.md#environment-access).
 
-Follow the [diagnosis permissions](diagnose_agent.md#permissions). Reuse existing session authorization for setup and tunnel lifecycle; Windows configuration, service restarts, and other changes require authorization. Client commands are not automatically restricted to read-only operations.
+Follow the [diagnosis permissions](../diagnose_agent.md#permissions). Reuse existing session authorization for setup and tunnel lifecycle; Windows configuration, service restarts, and other changes require authorization. Client commands are not automatically restricted to read-only operations.
 
 ## Prerequisites
 
-On WSL, use Python 3.10+, `sshuttle`, a working firewall backend such as `iptables`, and the commands required by `scripts/store-sshuttle.sh`: `jq`, `kubectl`, `ssh`, `timeout`, `bash`, and `stat`. The wrapper also uses standard tools including `pgrep` and `ps`. `sshpass` is required only when using the tunnel's optional SSH password file. The production Kubernetes context must be configured and authenticated:
+On WSL, use Python 3.10+, `sshuttle`, a working firewall backend such as `iptables`, and the commands required by `scripts/store-sshuttle.sh`: `kubectl`, `ssh`, `timeout`, `bash`, and `stat`. The wrapper also uses standard tools including `pgrep` and `ps`. `jq` is needed only for the legacy mode without a store-code argument. `sshpass` is required only when using the tunnel's optional SSH password file. The production Kubernetes context must be configured and authenticated, with permission to read the store socat StatefulSet as well as access and port-forward its service/pods:
 
 ```text
 gke_infra-automate-production_us-west1_default-us-west1
@@ -23,6 +29,22 @@ gke_infra-automate-production_us-west1_default-us-west1
 The tunnel's SSH credentials and the Windows credentials are separate. `store-sshuttle.sh` uses its own SSH authentication; `WINRM_CREDENTIALS_FILE` is only for the Windows client. sshuttle needs local sudo privileges to install firewall rules. Its remote node also needs a compatible Python interpreter (sshuttle 2.0.0 requires Python 3.10+).
 
 On Windows, WinRM must already be enabled, the firewall must permit TCP 5985 from the selected node's LAN address, and the Windows account must have access to the PowerShell remoting endpoint. Use the actual node source address when checking Windows firewall rules, rather than the WSL address.
+
+## Setup
+
+Run local commands from the ops-agent repository root unless stated otherwise.
+
+### WSL client
+
+Follow [Set up the shared Python environment](setup-python-venv.md) to create or reuse the repository's shared venv and install the pinned WinRM dependency. Use `${HOME}/.local/share/silica-ops-agent/venvs/diagnose/bin/python` for all client commands.
+
+Install `sshuttle` and a firewall backend separately if missing, with authorization. On Ubuntu, the distribution packages are an option:
+
+```bash
+sudo apt-get install -y sshuttle iptables
+```
+
+### Windows remoting
 
 An administrator can perform this one-time setup in **Windows PowerShell as Administrator**, when authorized:
 
@@ -34,34 +56,7 @@ winrm enumerate winrm/config/listener
 
 For a Public network profile, `Enable-PSRemoting -SkipNetworkProfileCheck -Force` permits setup but defaults to local-subnet access. Confirm the selected node is within that scope or have an administrator configure the required source scope. Avoid broadening access to all sources. A non-administrator account needs explicit endpoint permissions; local administrator accounts can encounter remote UAC restrictions. Resolve permissions with the Windows administrator rather than automatically disabling UAC filtering.
 
-## Initial WSL setup
-
-From the ops-agent repository root, run once:
-
-```bash
-bash scripts/setup-windows-winrm.sh
-```
-
-The script uses `python3 -m venv` and installs the pinned direct dependency from `scripts/requirements-windows-winrm.txt`. It creates or reuses:
-
-```text
-${HOME}/.local/share/silica-ops-agent/venvs/winrm/
-```
-
-There is no `uv` dependency, shell activation, system Python package installation, or automatic setup during diagnosis. Transitive dependencies are resolved by pip. Rerun the setup script explicitly when requirements change. If Ubuntu lacks venv support, install it first with authorization:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y python3-venv
-```
-
-Install `sshuttle` and a firewall backend separately if missing. On Ubuntu, the distribution packages are an option:
-
-```bash
-sudo apt-get install -y sshuttle iptables
-```
-
-## Windows credentials
+### Windows credentials
 
 Supply the JSON file `${HOME}/.local/secrets/silica-prod-windows-password`. The client reads this exact file by default; it does not search the secrets directory. Despite the filename, the file contains both the username and password:
 
@@ -72,6 +67,8 @@ Supply the JSON file `${HOME}/.local/secrets/silica-prod-windows-password`. The 
 }
 ```
 
+Both keys are required and must contain strings; either or both may be empty (`""`). Windows and NTLM policy still determine whether those credentials can authenticate.
+
 Use `DOMAIN\\username` in the JSON for a domain account. JSON requires backslashes to be escaped. Set `umask 077` before creating a new file, and keep the directory and existing credential file private:
 
 ```bash
@@ -81,32 +78,57 @@ chmod 600 "$HOME/.local/secrets/silica-prod-windows-password"
 
 The client requires the file to be owned by the current WSL user, denies group/other permissions, and rejects paths resolving outside the secrets directory. No path argument or environment variable is needed for the default file. If an alternative is needed, `--credentials FILE` overrides `WINRM_CREDENTIALS_FILE`, which overrides the default filename. Keep credentials out of the repository, command arguments, logs, and incident reports. The client does not print them or include raw transport exceptions in errors.
 
-## Start the tunnel: WSL terminal A
+### Start the tunnel: WSL terminal A
 
-Start from the ops-agent repository root. Load the required configuration and resolve its environment repository path before changing directories:
+From the ops-agent repository root, pass the target store code directly:
 
 ```bash
-source ./config.env
-OPS_REPO="$PWD"
-ENV_REPO=$(realpath "$SILICA_ENV_REPO")
-cd "$ENV_REPO/HKCWBMID"
-bash "$OPS_REPO/scripts/store-sshuttle.sh" --node 1
+bash scripts/store-sshuttle.sh hkcwbmid --node 1
+# Equivalent uppercase store code:
+# bash scripts/store-sshuttle.sh HKCWBMID --node 1
 ```
 
-Replace `HKCWBMID` with the target store and `1` with the selected node. Read the target store's `AGENTS.md` first. The configured `SILICA_ENV_REPO` is currently `../silica-environments`, resolved relative to this ops-agent repository. The wrapper reads the CIDR from the selected store directory; do not run it from the ops-agent root. Omitting `--node` uses the store SSH service instead of selecting a specific node.
+Replace `hkcwbmid` with the target store and `1` with the selected node. Store codes are case-insensitive; `--store STORE_CODE` and `--cluster STORE_CODE` are alternatives to the positional argument. The script can run from any directory when called by its absolute path; no local `AGENTS.md` or `infra-cluster.json` is required. The diagnosis agent must still read store-specific instructions under the configured `SILICA_ENV_REPO` when available, as required by its workflow. Omitting `--node` uses the store SSH service instead of selecting a specific node.
+
+For compatibility, calling the script without a store code still reads `AGENTS.md` and `.network.cidr` from `infra-cluster.json` in the current store directory.
 
 Enter the local sudo and remote SSH credentials if prompted. Keep this terminal running while using WinRM. To inspect options without starting a tunnel:
 
 ```bash
-bash "$OPS_REPO/scripts/store-sshuttle.sh" --help
+bash scripts/store-sshuttle.sh --help
 ```
 
-## Open a persistent session: WSL terminal B
+## Verification
+
+From the repository root, confirm the local client can start:
+
+```bash
+WINRM_PYTHON="$HOME/.local/share/silica-ops-agent/venvs/diagnose/bin/python"
+uv pip check --python "$WINRM_PYTHON"
+"$WINRM_PYTHON" scripts/windows-winrm-session.py --help
+```
+
+Expect no dependency errors and the client's help output. These checks do not open a remote session.
+
+With the authorized tunnel running, verify end-to-end access using the actual Windows LAN IP in the forwarded CIDR:
+
+```bash
+WINRM_PYTHON="$HOME/.local/share/silica-ops-agent/venvs/diagnose/bin/python"
+"$WINRM_PYTHON" scripts/windows-winrm-session.py \
+  --host 10.26.1.50 \
+  --command 'hostname; whoami; Get-Service WinRM'
+```
+
+The IP above is illustrative; replace it with the confirmed target. Expect the target hostname, authenticated Windows account, WinRM service status, and exit status 0.
+
+## Usage
+
+### Open a persistent session: WSL terminal B
 
 Start another terminal in the ops-agent repository root. The client reads the default credentials file automatically.
 
 ```bash
-WINRM_PYTHON="$HOME/.local/share/silica-ops-agent/venvs/winrm/bin/python"
+WINRM_PYTHON="$HOME/.local/share/silica-ops-agent/venvs/diagnose/bin/python"
 "$WINRM_PYTHON" scripts/windows-winrm-session.py --host 10.26.1.50
 ```
 
@@ -126,12 +148,12 @@ PS remote> exit
 
 Commands reuse one PowerShell runspace, preserving variables and the current directory. This client accepts one-line commands and prints output after each pipeline completes. It does not provide a full terminal, multiline input, remote input prompts such as `Read-Host`, or desktop/mouse control. Use noninteractive PowerShell commands. The session lasts only while the client and network connection remain alive; it does not resume after disconnecting.
 
-## Agent or single-command use
+### Agent or single-command use
 
 Use `--command` for automation; it never opens an interactive prompt:
 
 ```bash
-WINRM_PYTHON="$HOME/.local/share/silica-ops-agent/venvs/winrm/bin/python"
+WINRM_PYTHON="$HOME/.local/share/silica-ops-agent/venvs/diagnose/bin/python"
 "$WINRM_PYTHON" scripts/windows-winrm-session.py \
   --host 10.26.1.50 \
   --command 'hostname; whoami; Get-Service WinRM'
@@ -141,11 +163,18 @@ Wrap the PowerShell script in single quotes in Bash to preserve `$variables` and
 
 The client uses NTLM with required message encryption on HTTP port 5985. Do not enable Basic authentication or `AllowUnencrypted`. If an HTTPS listener and a trusted certificate for the selected IP already exist, use `--https` (default port 5986). Certificate verification stays enabled. `--port` overrides either default. Environment HTTP proxies are bypassed so connections go directly through the LAN tunnel.
 
+### References
+
+- [Microsoft: Enable-PSRemoting](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/enable-psremoting?view=powershell-5.1)
+- [Microsoft: WinRM remoting security](https://learn.microsoft.com/en-us/powershell/scripting/security/remoting/winrm-security)
+- [pypsrp client and runspace API](https://github.com/jborean93/pypsrp)
+- [sshuttle requirements](https://sshuttle.readthedocs.io/en/stable/requirements.html)
+
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| Client Python missing or dependency error | Run the setup script explicitly, then use its dedicated Python executable. |
+| Client Python missing or dependency error | Follow [shared Python setup](setup-python-venv.md), then use the shared venv’s explicit Python executable. |
 | Credentials rejected locally | Check JSON escaping, file ownership, owner-only permissions, and that the resolved file is under `${HOME}/.local/secrets/`. |
 | Tunnel fails before WinRM | Confirm Kubernetes authentication/resource access, local sudo/firewall support, the SSH credentials, and node Python compatibility. |
 | WinRM timeout or connection refused | Confirm sshuttle is running, the Windows IP belongs to the forwarded CIDR, and the node can reach the Windows listener/firewall on 5985 (or the configured port). |
@@ -160,10 +189,3 @@ Use a WinRM command to test end-to-end connectivity; ICMP `ping` is not forwarde
 Type `exit` or press Ctrl+D in the client to close the WinRM session. Ctrl+C interrupts the client and attempts to close its session; a lost network connection may delay remote cleanup. Closing a session does not undo commands already run.
 
 Stop sshuttle with Ctrl+C in terminal A only if this session started it, using the existing authorization. The wrapper stops the Kubernetes port-forward it created and leaves pre-existing forwards running. Do not run broad cleanup that would close someone else's tunnels. A pre-existing sshuttle process should remain running.
-
-## References
-
-- [Microsoft: Enable-PSRemoting](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/enable-psremoting?view=powershell-5.1)
-- [Microsoft: WinRM remoting security](https://learn.microsoft.com/en-us/powershell/scripting/security/remoting/winrm-security)
-- [pypsrp client and runspace API](https://github.com/jborean93/pypsrp)
-- [sshuttle requirements](https://sshuttle.readthedocs.io/en/stable/requirements.html)
