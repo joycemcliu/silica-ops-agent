@@ -6,7 +6,6 @@ Troubleshoot Silica environments. Gather evidence, explain the likely cause, and
 
 - Perform read-only checks without asking the user.
 - Ask for permission before making changes, including updating repositories, opening or closing tunnels, and writing incident reports or runbooks. Reuse permission already given for the session.
-- Check every command with `command-guard` before execution, including commands run over SSH. Do not bypass a rejected command.
 - If the toolkit cannot handle a task, explain the alternative and ask for permission before using it.
 
 ## Repositories
@@ -16,6 +15,26 @@ Troubleshoot Silica environments. Gather evidence, explain the likely cause, and
 - Read `<SILICA_ENV_REPO>/<store-code>/AGENTS.md` for store-specific instructions.
 
 Paths below are relative to this ops-agent repository.
+
+## Local diagnosis environment
+
+Use a dedicated Python 3.10+ virtual environment at `${HOME}/.local/share/silica-ops-agent/venvs/diagnose` for Python diagnostic tools, including the WinRM client. Reuse it across diagnosis sessions.
+
+From this repository's root, create it if missing and install the pinned WinRM dependency using `uv`:
+
+```bash
+DIAGNOSE_VENV="${HOME}/.local/share/silica-ops-agent/venvs/diagnose"
+if [[ ! -f "${DIAGNOSE_VENV}/pyvenv.cfg" || ! -x "${DIAGNOSE_VENV}/bin/python" ]]; then
+  uv venv --python python3 "${DIAGNOSE_VENV}"
+fi
+uv pip install --python "${DIAGNOSE_VENV}/bin/python" -r scripts/requirements-windows-winrm.txt
+uv pip check --python "${DIAGNOSE_VENV}/bin/python"
+"${DIAGNOSE_VENV}/bin/python" scripts/windows-winrm-session.py --help
+```
+
+Run Python diagnostic tools with this venv's explicit `bin/python` path; activation is optional. `uv` manages packages directly, so the venv does not need `pip` or `ensurepip`. Their absence does not mean the venv is missing or unusable. Use this setup for diagnosis instead of `scripts/setup-windows-winrm.sh`, which manages the separate `winrm` venv.
+
+Local venv creation and dependency installation follow the permissions above; reuse existing authorization. Once authorized, using `uv` as documented here needs no separate approval. If `uv` or Python 3.10+ is unavailable, report the missing prerequisite before attempting system changes.
 
 ## Environment access
 
@@ -39,6 +58,16 @@ Ports: Nomad `4646`, Consul `8500`, PostgreSQL `5432`, and platform web access `
 - Use `scripts/store-port-forward.sh` to access Nomad, Consul, the platform HTTPS API, and PostgreSQL. Use the local addresses printed by the script.
 - Use `scripts/store-port-forward-ssh.sh` to run approved commands on the store cluster's master node.
 - Use `scripts/store-port-forward-cleanup.sh` when finished. Close only tunnels opened for this session.
+
+### Remote Linux and Windows PCs through sshuttle (prod only)
+
+This workflow is supported only for **prod** stores. Do not use it for `dev`, `devlatest`, `qa`, or `staging`.
+
+- Use `scripts/store-sshuttle.sh STORE_CODE` to reach Linux and Windows PCs on a production store's LAN through a node. Store codes are case-insensitive; no store-directory working location is required. Add `--node N` to select a specific node; otherwise the store SSH service selects a backing node. Follow the tunnel permissions above.
+- Linux PCs: use `ssh USER@LINUX_IP` from WSL for an interactive shell, or `ssh USER@LINUX_IP 'COMMAND'` to run diagnostic or approved administration commands through the tunnel.
+- Windows PCs: use `scripts/windows-winrm-session.py --host WINDOWS_IP --command 'POWERSHELL'` from WSL for diagnostic or approved administration commands. Run it with `${HOME}/.local/share/silica-ops-agent/venvs/diagnose/bin/python` from the local diagnosis environment above. Omit `--command` for a persistent PowerShell session.
+- Confirm the target PC belongs to the selected store and its IP is within the forwarded LAN CIDR. Remote commands follow the same permissions as local commands: read-only checks are allowed; changes require approval unless already authorized for the session.
+- Close SSH and WinRM sessions when finished. Stop sshuttle only if started for this session; leave pre-existing tunnels running.
 
 ### Logs, metrics, and traces
 
