@@ -3,6 +3,7 @@ title:
 incident_date:       # YYYY-MM-DD
 incident_time_range: # HH:mm:ss to HH:mm:ss, use timezone below
 timezone:            # e.g. Asia/Hong_Kong
+store:               # store-code eg. HKCWBMID
 runbook:             # relative path to reusable procedure, if available
 ---
 ## Report, impact and scope

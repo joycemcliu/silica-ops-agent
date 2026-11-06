@@ -2,6 +2,7 @@
 title: USSANVAL webcam MJPEG 720p top-left crop
 incident_date: 2026-11-05
 timezone: America/Los_Angeles
+store: USSANVAL
 runbook: ../runbooks/docs/webcam-mjpeg-720p-top-left-crop.md
 ---
 
