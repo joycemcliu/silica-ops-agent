@@ -22,6 +22,8 @@ tags: [grafana, mcp, kubectl, port-forward, setup]
 
 Both forwards target service port `8000`. Configure the MCP clients to use these URLs and Host headers; `grafana_mcp_ops_dev` and `grafana_mcp_ops_prod` are labels, not hostname aliases managed by the script.
 
+The human registers these endpoints in Hermes using the separate [Hermes Grafana MCP setup guide](hermes-grafana-mcp.md). Forwarding alone does not expose MCP tools to workers.
+
 ## Setup
 
 Run the script as your normal user, without sudo, so kubectl retains your PATH and Kubernetes authentication. No Python environment, sudo credentials, or `/etc/hosts` changes are needed. The script uses `setsid` to keep forwarding alive after the calling terminal exits and `ss` to check for occupied local ports.
@@ -56,7 +58,7 @@ Confirm both contexts in the table are present. Once forwarding is authorized, s
 
 ## Usage
 
-Use `start`, `status`, and `stop` as described in the [diagnosis toolkit](../diagnose_toolkit.md#logs-metrics-and-traces). Each forward reconnects independently after a process exit, with a 3-second retry delay. HTTP connectivity checks run every 5 seconds with a 2-second timeout; three consecutive connection failures restart that forward to recover stalled connections.
+Keep forwarding running between diagnosis sessions. Workers use `status` and, when necessary, `start` as described in the [diagnosis toolkit](../diagnose_toolkit.md#logs-metrics-and-traces), then refresh their MCP connections. Each forward reconnects independently after a process exit, with a 3-second retry delay. HTTP connectivity checks run every 5 seconds with a 2-second timeout; three consecutive connection failures restart that forward to recover stalled connections.
 
 State and logs live in `.tools/grafana-mcp-forward/`. Follow later reconnections with:
 
@@ -76,10 +78,10 @@ tail -f .tools/grafana-mcp-forward/forward.log
 
 ## Cleanup
 
-When finished, stop forwarding only if it was started for your session:
+Routine diagnosis does not stop these shared forwards. When the human intentionally takes Grafana MCP access offline, stop forwarding with:
 
 ```bash
 ./scripts/grafana-mcp-forward.sh stop
 ```
 
-Leave pre-existing forwarding running.
+Coordinate with users of both environments before stopping these shared forwards.

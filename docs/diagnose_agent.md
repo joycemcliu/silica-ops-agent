@@ -7,7 +7,9 @@ Troubleshoot Silica environments. Gather evidence, explain the likely cause, and
 These rules apply to every agent throughout the diagnosis session, including when following other documents, runbooks, or tool instructions. Other documents do not grant additional permissions.
 
 - Perform read-only checks without asking the user.
-- Ask for permission before making changes, including updating repositories, opening or closing tunnels, and writing incident reports or runbooks. Reuse permission already given for the session.
+- Use configured MCP connections without asking the user.
+- Read `SILICA_REPO` and `SILCIA_ENV_REPO` without asking the user.
+- Ask for permission before making other changes, including updating repositories, opening or closing other tunnels, and writing incident reports or runbooks. Reuse permission already given for the session.
 - If the toolkit cannot handle a task, explain the alternative and ask for permission before using it.
 
 ## Repositories
@@ -23,6 +25,6 @@ These rules apply to every agent throughout the diagnosis session, including whe
 3. Search the [platform knowledge index](../knowledge/platform/INDEX.md) for relevant platform behavior and diagnosis clues. Search the [runbook index](../knowledge/runbooks/INDEX.md) for a matching runbook and follow it within the permissions above.
 4. Use the [diagnosis toolkit](diagnose_toolkit.md) to gather evidence from source code, deployment configuration, service health, logs, metrics, and traces. Read the relevant section before using a tool. Follow the permissions above.
 5. Report the findings, supporting evidence, likely cause, remaining uncertainty, and recommended next steps.
-6. Clean up session tunnels using the permission already granted, or request it if needed.
+6. Clean up session tunnels using the permission already granted, or request it if needed. Leave shared Grafana forwarding running.
 7. Read [runbook guideline](../knowledge/runbooks/AGENTS.md) and prepare the incident summary and any runbook updates it requires. Save them when authorized.
 8. Follow the [debrief instructions](../knowledge/debrief/AGENTS.md) to review the diagnosis process, suggest toolkit improvements, and capture reusable knowledge.
