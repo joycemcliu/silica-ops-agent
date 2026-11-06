@@ -14,7 +14,7 @@ Run a WinRM client in WSL to execute PowerShell on a Windows PC in a production 
 WSL client → sshuttle → production Linux node → Windows LAN IP:5985
 ```
 
-The client runs locally in WSL; no Python packages or WinRM client are installed on the node. sshuttle forwards TCP for the store CIDR, rather than bridging the whole network. With an explicit store code, the script reads `SUBNET_ID` from the production socat SSH StatefulSet and forwards `10.SUBNET_ID.0.0/16`. The Windows address must fall within that CIDR, and the selected node must be able to reach it. This production tunnel workflow does not apply to dev stores; see [environment access](../diagnose_agent.md#environment-access).
+The client runs locally in WSL; no Python packages or WinRM client are installed on the node. sshuttle forwards TCP for the store CIDR, rather than bridging the whole network. With an explicit store code, the script reads `SUBNET_ID` from the production socat SSH StatefulSet and forwards `10.SUBNET_ID.0.0/16`. The Windows address must fall within that CIDR, and the selected node must be able to reach it. This production tunnel workflow does not apply to dev stores; see [environment access](../diagnose_toolkit.md#environment-access).
 
 Follow the [diagnosis permissions](../diagnose_agent.md#permissions). Reuse existing session authorization for setup and tunnel lifecycle; Windows configuration, service restarts, and other changes require authorization. Client commands are not automatically restricted to read-only operations.
 

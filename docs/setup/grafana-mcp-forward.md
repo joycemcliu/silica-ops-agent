@@ -56,7 +56,7 @@ Confirm both contexts in the table are present. Once forwarding is authorized, s
 
 ## Usage
 
-Use `start`, `status`, and `stop` as described in the [diagnosis workflow](../diagnose_agent.md#logs-metrics-and-traces). Each forward reconnects independently after a process exit, with a 3-second retry delay. HTTP connectivity checks run every 5 seconds with a 2-second timeout; three consecutive connection failures restart that forward to recover stalled connections.
+Use `start`, `status`, and `stop` as described in the [diagnosis toolkit](../diagnose_toolkit.md#logs-metrics-and-traces). Each forward reconnects independently after a process exit, with a 3-second retry delay. HTTP connectivity checks run every 5 seconds with a 2-second timeout; three consecutive connection failures restart that forward to recover stalled connections.
 
 State and logs live in `.tools/grafana-mcp-forward/`. Follow later reconnections with:
 
