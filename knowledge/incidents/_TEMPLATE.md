@@ -1,8 +1,9 @@
 ---
 title:
-incident_date:      # YYYY-MM-DD
-timezone:          # e.g. Asia/Hong_Kong
-runbook:           # relative path to reusable procedure, if available
+incident_date:       # YYYY-MM-DD
+incident_time_range: # HH:mm:ss to HH:mm:ss, use timezone below
+timezone:            # e.g. Asia/Hong_Kong
+runbook:             # relative path to reusable procedure, if available
 ---
 ## Report, impact and scope
 - What was reported, who/what was affected, and any scope corrections or unknowns
