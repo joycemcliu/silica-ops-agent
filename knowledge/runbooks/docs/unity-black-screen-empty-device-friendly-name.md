@@ -4,7 +4,7 @@ slug: unity-black-screen-empty-device-friendly-name
 services: [unity, experience]
 tags: [windows, unity, nomad, ravingbots, multiinput]
 status: draft
-last_verified:
+last_verified: 2026-11-06
 applies_to:
   dll_sha256: 5EF7E3F251B171ACEEF91A573366F611FE4EA2C33045C260F046AF0597A2E253
 source_incidents: [../../incidents/2026-11-02-holodeck-3.md]
@@ -31,12 +31,12 @@ An **absent override** permits fallback to `DEVPKEY_Device_DeviceDesc` / `SPDRP_
 
 ## Likely causes
 
-| Cause | Evidence that confirms | Evidence that rules out |
-| --- | --- | --- |
-| MultiInput infinite loop on an existing empty name | Empty selected name plus blocked native enumeration; non-advancing empty-name branch; removal releases initialization | Enumeration finishes normally or the main thread blocks elsewhere |
-| Attached USB device problem | Repeatable change with a specific attached device and matching blocked driver call | Recorded incident persisted with USB disconnected and no Raw Input devices; trigger belonged to another device class |
-| Photon/network failure | Independent endpoint failures and connection errors while Unity continues processing | Recorded hang was in MultiInput; Photon progressed after the metadata repair. A final Photon log alone is insufficient |
-| Display/capture problem | Game initializes and renders locally while the operator feed alone is black | Recorded case affected both displays and had a blocked game main thread |
+| Cause                                              | Evidence that confirms                                                                                                | Evidence that rules out                                                                                                |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| MultiInput infinite loop on an existing empty name | Empty selected name plus blocked native enumeration; non-advancing empty-name branch; removal releases initialization | Enumeration finishes normally or the main thread blocks elsewhere                                                      |
+| Attached USB device problem                        | Repeatable change with a specific attached device and matching blocked driver call                                    | Recorded incident persisted with USB disconnected and no Raw Input devices; trigger belonged to another device class   |
+| Photon/network failure                             | Independent endpoint failures and connection errors while Unity continues processing                                  | Recorded hang was in MultiInput; Photon progressed after the metadata repair. A final Photon log alone is insufficient |
+| Display/capture problem                            | Game initializes and renders locally while the operator feed alone is black                                           | Recorded case affected both displays and had a blocked game main thread                                                |
 
 The [source incident](../../incidents/2026-11-02-holodeck-3.md) contains the observations behind this table. The library is RavingBots MultiInput, not Rewired.
 

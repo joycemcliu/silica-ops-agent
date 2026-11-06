@@ -4,7 +4,7 @@ slug: webcam-mjpeg-720p-top-left-crop
 services: [video-dge, webcam]
 tags: [windows, directshow, mjpeg, webcam, fov]
 status: draft
-last_verified:
+last_verified: 2026-11-06
 applies_to:
   camera_family: Logitech Webcam C930e; verify actual device capabilities
   capture: Windows DirectShow MJPEG
@@ -92,15 +92,15 @@ Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumbe
 
 ## Likely causes
 
-| Cause | Evidence that confirms | Evidence that rules out |
-| --- | --- | --- |
-| MJPEG mode-specific truncation at the capture boundary | Direct-copy 720p packet renders as a top-left crop of 1080p; repeat at supported rates | Direct-copy packet has full FOV and only processed output is cropped |
-| Frame-rate-dependent capture behavior | Same resolution/codec is cropped only at one advertised rate | Source incident reproduced the same crop at both tested rates |
-| FFmpeg decoding, filtering, encoding, or downstream rendering | Direct-copy frame normal, processed result cropped | Source incident's stream-copy JPEG was already cropped; these stages were not necessary to reproduce it |
-| Different FFmpeg/UVC/proxy binary versions | Behavior tracks differing binaries in a controlled test | Source incident comparison binaries matched by SHA-256 |
-| Device firmware/hardware variant or device-persisted state | Separately authorized cross-swap makes symptom follow the physical camera; firmware/descriptor evidence further distinguishes variants | Symptom stays with host under a controlled cross-swap; exact cause still requires investigation |
-| Host/per-device DirectShow negotiation or configuration | Cross-swap makes symptom stay with PC, or equivalent-mode alternate-API test separates negotiation paths | Symptom follows device across controlled hosts; matching package labels alone do not rule it out |
-| Effective camera zoom/pan/tilt | Read effective controls and demonstrate a controlled relationship to framing | Property dialog default/disabled status alone is insufficient; not confirmed or ruled out by this session |
+| Cause                                                         | Evidence that confirms                                                                                                                 | Evidence that rules out                                                                                   |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| MJPEG mode-specific truncation at the capture boundary        | Direct-copy 720p packet renders as a top-left crop of 1080p; repeat at supported rates                                                 | Direct-copy packet has full FOV and only processed output is cropped                                      |
+| Frame-rate-dependent capture behavior                         | Same resolution/codec is cropped only at one advertised rate                                                                           | Source incident reproduced the same crop at both tested rates                                             |
+| FFmpeg decoding, filtering, encoding, or downstream rendering | Direct-copy frame normal, processed result cropped                                                                                     | Source incident's stream-copy JPEG was already cropped; these stages were not necessary to reproduce it   |
+| Different FFmpeg/UVC/proxy binary versions                    | Behavior tracks differing binaries in a controlled test                                                                                | Source incident comparison binaries matched by SHA-256                                                    |
+| Device firmware/hardware variant or device-persisted state    | Separately authorized cross-swap makes symptom follow the physical camera; firmware/descriptor evidence further distinguishes variants | Symptom stays with host under a controlled cross-swap; exact cause still requires investigation           |
+| Host/per-device DirectShow negotiation or configuration       | Cross-swap makes symptom stay with PC, or equivalent-mode alternate-API test separates negotiation paths                               | Symptom follows device across controlled hosts; matching package labels alone do not rule it out          |
+| Effective camera zoom/pan/tilt                                | Read effective controls and demonstrate a controlled relationship to framing                                                           | Property dialog default/disabled status alone is insufficient; not confirmed or ruled out by this session |
 
 ## Remediation (HUMAN executes; agent never runs)
 
