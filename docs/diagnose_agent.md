@@ -65,3 +65,4 @@ This workflow is supported only for **prod** stores. Do not use it for `dev`, `d
 5. Report the findings, supporting evidence, likely cause, remaining uncertainty, and recommended next steps.
 6. Clean up session tunnels using the permission already granted, or request it if needed.
 7. Read [runbook guideline](../knowledge/runbooks/AGENTS.md) and prepare the incident summary and any runbook updates it requires. Save them when authorized.
+8. Follow the [debrief instructions](../knowledge/debrief/AGENTS.md) to review the diagnosis process, suggest toolkit improvements, and capture reusable knowledge.
