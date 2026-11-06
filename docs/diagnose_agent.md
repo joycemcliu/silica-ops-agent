@@ -51,13 +51,10 @@ This workflow is supported only for **prod** stores. Do not use it for `dev`, `d
 
 ### Logs, metrics, and traces
 
-- Before connecting to either Grafana MCP server, use `scripts/grafana-mcp-forward.sh start` to enable forwarding for both environments. Follow the permissions above before opening tunnels.
-- Use `scripts/grafana-mcp-forward.sh status` to check forwarding. The script prints the MCP endpoints and required HTTP Host headers when started:
-  - Dev: `http://grafana_mcp_ops_dev:8000/mcp`, with `Host: localhost:60007`.
-  - Prod: `http://grafana_mcp_ops_prod:8000/mcp`, with `Host: localhost:60008`.
-- Dev environment: `sandbox_dev_grafana` MCP server.
-- Prod environment: `sandbox_prod_grafana` MCP server.
-- When finished, use `scripts/grafana-mcp-forward.sh stop` only if forwarding was started for this session. Leave pre-existing forwarding running.
+- Before connecting, run `scripts/grafana-mcp-forward.sh start` for both environments. Follow the tunnel permissions above.
+- Check connectivity with `scripts/grafana-mcp-forward.sh status`.
+- Use `sandbox_dev_grafana` for dev and `sandbox_prod_grafana` for prod.
+- When finished, run `scripts/grafana-mcp-forward.sh stop` only if forwarding was started for this session. Leave pre-existing forwarding running.
 
 ## Workflow
 
