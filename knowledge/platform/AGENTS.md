@@ -40,6 +40,7 @@ Use the terms below. Add new terms here in the same change, in alphabetical orde
 | traefik | | infra |
 | unity | | application |
 | video-dge | | service |
+| video-server | | service |
 | webcam | | hardware |
 
 ### Tags
