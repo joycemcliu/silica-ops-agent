@@ -20,7 +20,7 @@ These rules apply to every agent throughout the diagnosis session, including whe
 
 1. Identify the store code, symptoms, and incident time range. Ask for missing details when needed.
 2. Read the store's `AGENTS.md`. Check both repositories' branches and working trees. With permission, update them to the latest `master`; preserve local changes and never force a checkout.
-3. Search [runbook index](../knowledge/runbooks/INDEX.md) for a matching runbook and follow it within the permissions above.
+3. Search the [platform knowledge index](../knowledge/platform/INDEX.md) for relevant platform behavior and diagnosis clues. Search the [runbook index](../knowledge/runbooks/INDEX.md) for a matching runbook and follow it within the permissions above.
 4. Use the [diagnosis toolkit](diagnose_toolkit.md) to gather evidence from source code, deployment configuration, service health, logs, metrics, and traces. Read the relevant section before using a tool. Follow the permissions above.
 5. Report the findings, supporting evidence, likely cause, remaining uncertainty, and recommended next steps.
 6. Clean up session tunnels using the permission already granted, or request it if needed.
