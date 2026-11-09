@@ -5,7 +5,7 @@ store: staging
 session_id: codex 01a1be3c-819e-7472-aa1a-62ef63476b90
 ---
 
-Closeout: diagnosis complete; staging workaround validated; implementation testing and production rollout deferred. Evidence IDs refer to the [incident record](../../incidents/2026-11-09-staging-ae-mfr-footage-mtime.md).
+Initial closeout: diagnosis complete; staging workaround validated; implementation testing and production rollout deferred. A later user deployment and rerender check verified five end-to-end staging successes; production remains unverified. Evidence IDs and follow-up details are in the [incident record](../../incidents/2026-11-09-staging-ae-mfr-footage-mtime.md).
 
 ## Time sinks
 
@@ -32,7 +32,7 @@ Closeout: diagnosis complete; staging workaround validated; implementation testi
 ## Blind spots
 
 - Exact Adobe private internals and the cause of every production timeout were not established.
-- Same-host staging experiments do not establish fleet-wide reliability. The implementation branch itself has not been rendered end-to-end or deployed as part of this closeout.
+- Same-host staging experiments do not establish fleet-wide reliability. At initial closeout the implementation had not been deployed or rendered end-to-end; the later staging follow-up closes that gap for the verified requests.
 
 ## Platform facts learned
 

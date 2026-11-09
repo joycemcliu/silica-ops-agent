@@ -100,3 +100,21 @@ Integrity references:
 3. PR #4751 is the handoff. An upgraded renderer must precede publication of converted external templates; incompatible consumers need unconverted content. Full native Mac module tests encounter the pre-existing Darwin `setProcAttrFor` build gap; Windows builds were cross-compiled, not Windows tests executed.
 4. Exact Adobe internals, the minimal triggering reference subset, other record layouts, other hosts/builds, and production effectiveness remain unverified. No further experiments, CI monitoring, merge, or rollout is scheduled by this diagnosis closeout.
 
+## Follow-up: deployed staging rerenders verified
+
+The user subsequently deployed the renderer and activated the converted template in staging. At 16:33 the old worker was still present and lacked `AEFootageMTime`; Nomad then replaced it. Job `video-dge/renderer` version 18 runs image `us-docker.pkg.dev/silica-development/images/video-dge-render:0.0.0-4751-merge`. Allocation `fdf42d88-633b-ecb7-8284-a38fa4e88533` started its worker PID `15184` at 16:34:28 HKT; the binary contains the helper. This follow-up supersedes E16's staging deployment/end-to-end uncertainty. Production effectiveness remains not-checked.
+
+The user requested verification of five rerenders. Live worker logs matched each command, successful terminal result, and NAS upload by session and trace. All used AE2023 with `-mfr ON 60 -mem_usage 50 80`.
+
+| Session | Render succeeded (HKT) | Render seconds | NAS upload confirmed (HKT) |
+| --- | --- | --- | --- |
+| `sbvrdev-261109-T4-083300` | 16:42:07 | 102.43 | 16:42:09 |
+| `sbvrdev-261109-T4-060300` | 16:48:46 | 90.54 | 16:48:49 |
+| `sbvrdev-261108-T4-223601` | 16:45:25 | 94.18 | 16:45:27 |
+| `sbvrdev-261108-T4-200600` | 16:50:29 | 88.54 | 16:50:33 |
+| `sbvrdev-261108-T4-173700` | 16:52:14 | 91.18 | 16:52:17 |
+
+Independent read-only verification of each canonical NAS `ambersky_trailer.mp4` completed by 17:13 HKT. Every file contains H.264 1920×1080 video at 25 fps, 1,848 frames and 73.92 seconds; `ffprobe` succeeded and full FFmpeg decoding returned zero with no decode errors. This is deployed staging validation of all five requests, not a production rollout or a manual visual comparison of these five outputs.
+
+Evidence is retained in `/Users/7am/Downloads/Ambersky-staging-rerender-check-20261109/`: `results.csv`, `results.json`, `worker-events.json`, and `video-validation.json`. The verification did not enqueue additional renders or modify renderer/template configuration.
+

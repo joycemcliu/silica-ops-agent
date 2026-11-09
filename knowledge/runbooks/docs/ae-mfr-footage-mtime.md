@@ -89,4 +89,4 @@ Human checks:
 
 - Exact Adobe private function/race, which individual footage reference triggers it, and why other templates do not expose it.
 - Compatibility of other `sspc` layouts, engines/builds, and deployment environments.
-- End-to-end rendering by the implementation PR and production effectiveness; source-incident diagnostic success is staging evidence only.
+- End-to-end implementation rendering was unverified at initial closeout; the source incident's later follow-up verifies deployed staging rerenders. Production effectiveness remains not-checked.
