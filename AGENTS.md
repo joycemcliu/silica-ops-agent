@@ -10,7 +10,7 @@
 
 ## Shared Python environment
 
-- Use `${HOME}/.local/share/silica-ops-agent/venvs/diagnose/bin/python` for all Python commands and tools in this repository, including development and diagnosis. Reuse this shared venv across tasks and sessions.
+- Use the repository-local `.venv/bin/python` for all Python commands and tools in this repository, including development and diagnosis. Resolve this path from the repository root and reuse this venv across tasks and sessions.
 - Run Python with this explicit interpreter path; activation is optional. Use `uv pip` commands with `--python` pointing to this interpreter when managing dependencies.
 
 ## Diagnosis
