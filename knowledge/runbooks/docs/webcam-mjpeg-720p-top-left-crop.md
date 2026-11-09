@@ -3,7 +3,7 @@ title: Webcam MJPEG 720p capture truncates the field of view
 slug: webcam-mjpeg-720p-top-left-crop
 services: [video-dge, webcam]
 tags: [windows, directshow, mjpeg, webcam, fov]
-status: draft
+status: reviewed
 last_verified: 2026-11-06
 applies_to:
   camera_family: Logitech Webcam C930e; verify actual device capabilities

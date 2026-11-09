@@ -3,7 +3,7 @@ title: "JetStream consumer does not deliver retained matching work"
 slug: jetstream-consumer-delivery-stalled
 services: [video-server, video-dge-renderer, nats]
 tags: [jetstream, consumer, rendering, queuing, delivery, leadership]
-status: draft
+status: reviewed
 last_verified: 2026-11-06
 applies_to:
   nats_server: "2.10.28"

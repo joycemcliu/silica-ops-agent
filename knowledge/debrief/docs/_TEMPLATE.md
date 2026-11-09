@@ -2,7 +2,8 @@
 incident: <incident file name without .md>
 date: YYYY-MM-DD
 store: <code>
-session_id: <AI harness session-id>
+# Example: "codex 019abcde-1234-7000-8000-123456789abc 192.168.1.10"
+session_id: "<AI agent, e.g. codex/hermes> <session ID/thread ID/conversation ID> <PC IP>"
 ---
 
 ## Time sinks

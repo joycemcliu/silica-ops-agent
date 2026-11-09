@@ -3,7 +3,7 @@ title: Unity black screen caused by an empty Windows device friendly name
 slug: unity-black-screen-empty-device-friendly-name
 services: [unity, experience]
 tags: [windows, unity, nomad, ravingbots, multiinput]
-status: draft
+status: reviewed
 last_verified: 2026-11-06
 applies_to:
   dll_sha256: 5EF7E3F251B171ACEEF91A573366F611FE4EA2C33045C260F046AF0597A2E253

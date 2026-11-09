@@ -3,8 +3,8 @@ title: Short WCap recordings pass validation and leave black render sections
 slug: wcap-short-recordings
 services: [video-dge, video-server, unity]
 tags: [recording, duration, black-frame, wcap]
-status: draft
-last_verified:
+status: reviewed
+last_verified: 2026-11-09
 applies_to:
   video_dge_source: "0.4.6"
   capture_path: Windows AudioVideo via WCap
