@@ -20,7 +20,7 @@ incidents/YYYY-MM-DD-<slug>.md              instance-specific record of one sess
 ## Hard rules
 
 1. Never execute remediation commands or the scripts you write. Writing them is fine.
-2. Never commit, push, or set `status: reviewed`.
+2. Never commit or push. Every runbook you create, consolidate, or update must have `status: draft` and an empty `last_verified`, including previously reviewed runbooks. Leave setting `status: reviewed` and `last_verified` together to a human after a recurrence validates the steps.
 3. Never include secrets, tokens, or credentials. Redact to `<redacted>`.
 4. Never present an inference as fact. If it was not run in this session, tag it `not-checked`.
 5. Never invent commands, flags, metric names, or output. If unsure, put it under "Not yet verified".
