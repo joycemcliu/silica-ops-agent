@@ -1,62 +1,56 @@
-# Platform knowledge
+# AGENTS.md — platform/
 
-Write reusable Silica platform knowledge that helps diagnosis workers understand symptoms, interpret evidence, and choose what to check next.
+## Purpose
 
-## Before you write
+`platform/` holds **reusable platform knowledge** for troubleshooting and root cause analysis (RCA):
 
-1. Search the `tags` and `components` metadata in `docs/`.
-2. Update an existing document if it covers the symptom family. Do not create a second one.
-3. Otherwise, copy [docs/_TEMPLATE.md](docs/_TEMPLATE.md) to `docs/<component>-<symptom-slug>.md`. Use lowercase and hyphens.
+- **Debug guides** (`docs/domains/`): how to debug a platform domain or feature (e.g. video-dge, rendering) and how to test it.
+- **Flow docs** (`docs/flows/`): how a workflow moves across several microservices (sequence, contracts, failure points).
+
+## How to use this folder (read path)
+
+1. Read `INDEX.md` first. Do not scan the whole `docs/` tree.
+2. Open only the docs whose "read when" line matches your task or symptom.
+3. Follow `Related` links from those docs instead of searching broadly.
+4. Treat docs with `status: stale` or an old `last_verified`(>3 months) as hints, not facts. Confirm against code, logs, or metrics.
+
+## Scope boundary
+
+In scope (belongs here):
+
+- Cross-service behavior and end-to-end workflows
+- Domain-level debugging procedures that apply to more than one service
+- Reusable test procedures and how to read their results
+
+Out of scope (keep in the owning service's repo/README):
+
+- Single-service internals, setup, and API reference
+- One-off incident write-ups (only the reusable lesson goes here, as a short entry under `Known incidents`)
+- Anything that is just a copy of code, schemas, or configs. Link to the source instead.
 
 ## Writing rules
 
-- Cover one symptom family per document. Keep it to about 60 lines; split larger documents.
-- Always include YAML metadata: `title`, `description`, `tags`, `components`, `last_verified`, and `source_incidents`. Describe what the document helps diagnose in one sentence, starting with "Use when:".
-- Explain relevant platform behavior and diagnosis clues. State which environments or versions the knowledge applies to.
-- Every fact needs evidence and a status of `verified` or `inferred`. Cite source code, configuration, or observed results. No evidence means `inferred`.
-- Each "How to verify" entry needs an exact command or query and expected output. Mark untested checks as `untested`.
-- Update `last_verified` only when you run the relevant check, not when editing prose. Use `null` if the knowledge has never been verified.
-- Add source debrief filenames to `source_incidents` and link the debriefs under "Related docs".
-- Remove or rewrite facts contradicted by new evidence. Do not leave conflicting facts together.
-- Empty sections are fine. Write none instead of padding.
-- Add or update the document's row in [INDEX.md](INDEX.md), linking the slug to `docs/<slug>.md`. Link related platform docs and runbooks when available.
+- Start from a template: `docs/_TEMPLATE-debug.md` or `docs/_TEMPLATE-flow.md`.
+- Filenames are lowercase kebab-case, e.g. `video-dge.md`, `render-request-lifecycle.md`.
+- Fill in the frontmatter completely. `INDEX.md` is built from it.
+- Debug guides are organized by **symptom**, not by component.
+- Every "likely cause" must include **how to confirm it** (exact query, command, log line, or metric) and what normal vs. abnormal looks like.
+- Link to the source of truth (proto, OpenAPI, code path, dashboard) rather than copying details.
+- Mark anything you have not verified with `(unverified)`.
+- **Never** include secrets, tokens, credentials, or customer data. Use placeholders such as `<TRACE_ID>`.
 
-## Tag and component vocabulary
+## Maintenance rules
 
-Use the terms below. Add new terms here in the same change, in alphabetical order, one row per term.
+- After every RCA, update or add the relevant doc in the same change.
+- When you edit a doc, update `last_verified` only if you actually re-verified its content.
+- Add, rename, or remove a doc and `INDEX.md` in the same change.
+- If you find a doc that is wrong, fix it or set `status: stale` and say why at the top.
 
-- Use lowercase, hyphenated, singular terms: `nats`, not `NATS` or `NATS-JetStream`.
-- Use one canonical name per thing. Record aliases in the Aliases column, not as separate terms.
-- `components` identifies services, applications, infrastructure, and hardware. `tags` identifies symptoms and concepts.
+## Definition of done for a doc
 
-### Components
-
-| Term | Aliases | Kind |
-| --- | --- | --- |
-| consul | | infra |
-| nats | jetstream | infra |
-| nomad | | infra |
-| postgres | postgresql | infra |
-| traefik | | infra |
-| unity | | application |
-| video-dge | | service |
-| video-server | | service |
-| webcam | | hardware |
-
-### Tags
-
-| Term | Meaning |
-| --- | --- |
-| consumer-lag | Consumer falling behind its stream |
-| high-latency | Slower than expected end to end |
-| no-logs | Expected logs absent |
-| quorum-loss | JetStream or Raft group lost majority |
-| restart-loop | Allocation or process keeps restarting |
-| stream-stall | Stream stops accepting or delivering |
-| trace-gap | Broken or missing trace correlation |
-
-These are seed terms; update the vocabulary as platform knowledge grows.
-
-## Stale docs
-
-- If `last_verified` is older than 90 days, treat facts as `inferred` until re-checked.
+- [ ] Frontmatter complete
+- [ ] Symptoms (debug) or sequence and failure points (flow) are filled in
+- [ ] Each cause or failure point has a confirmation step
+- [ ] Links point to real sources of truth
+- [ ] No secrets
+- [ ] `INDEX.md` updated

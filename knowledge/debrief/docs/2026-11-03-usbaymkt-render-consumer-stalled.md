@@ -54,7 +54,7 @@ Statuses refer to evidence recorded in the source incident, not checks run durin
 
 ## Platform knowledge proposals
 
-- Created [video render queue delivery](../../platform/docs/nats-video-render-queue-delivery.md) from E03/E06–E12/E15/E17 and recovery evidence; it covers delivery boundaries, leadership interpretation and evidence limits. No additional live verification was performed.
+- Created [video render queue delivery](../../platform/docs/flows/nats-video-render-queue-delivery.md) from E03/E06–E12/E15/E17 and recovery evidence; it covers delivery boundaries, leadership interpretation and evidence limits. No additional live verification was performed.
 
 ## What helped
 

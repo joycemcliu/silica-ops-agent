@@ -1,10 +1,28 @@
-# Platform knowledge index
+# INDEX — platform/
 
-Targeted Silica platform knowledge to help diagnosis workers understand symptoms, interpret evidence, and choose what to check next.
+Start here. Each entry says **when to read** the doc. Rules for using and maintaining this folder: see [AGENTS.md](AGENTS.md).
 
-| slug | Symptoms or questions | Components |
-| --- | --- | --- |
-| [nats-video-render-queue-delivery](docs/nats-video-render-queue-delivery.md) | Queued video tasks despite healthy workers or zero consumer pending; publication versus delivery and rendering progress | nats, video-dge, video-server |
+## Templates
 
+| File                                                | Use for                                       |
+| --------------------------------------------------- | --------------------------------------------- |
+| [docs/\_TEMPLATE-debug.md](docs/_TEMPLATE-debug.md) | Debug / testing guide for a domain or feature |
+| [docs/\_TEMPLATE-flow.md](docs/_TEMPLATE-flow.md)   | Workflow across several microservices         |
 
-To create or update a document, follow the [authoring instructions](AGENTS.md).
+## Domain debug guides (`docs/domains/`)
+
+No domain debug guides yet. For queue-delivery triage, follow the runbook linked from the flow below.
+
+## Flow docs (`docs/flows/`)
+
+| Doc                                                                                | Read when                                                                                             | Services                               | Status |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------- | ------ |
+| [Video render queue delivery flow](docs/flows/nats-video-render-queue-delivery.md) | Video tasks stay Queuing despite healthy workers or zero consumer pending; locate the stalled handoff | video-server, nats, video-dge-renderer | draft  |
+
+## By symptom (quick lookup)
+
+| Symptom                                                              | Go to                                                                                          |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Runnable video tasks stay Queuing despite healthy workers            | [Queue delivery failure points](docs/flows/nats-video-render-queue-delivery.md#failure-points) |
+| Consumer pending is zero despite retained matching messages          | [Queue delivery failure points](docs/flows/nats-video-render-queue-delivery.md#failure-points) |
+| Dependent highlights stay Pending while child tasks stop progressing | [Queue delivery sequence](docs/flows/nats-video-render-queue-delivery.md#sequence)             |

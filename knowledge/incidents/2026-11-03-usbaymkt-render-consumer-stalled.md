@@ -6,7 +6,7 @@ timezone: America/Los_Angeles
 store: USBAYMKT
 runbook: ../runbooks/docs/jetstream-consumer-delivery-stalled.md
 platform_notes:
-  - ../platform/docs/nats-video-render-queue-delivery.md
+  - ../platform/docs/flows/nats-video-render-queue-delivery.md
 debrief: ../debrief/docs/2026-11-03-usbaymkt-render-consumer-stalled.md
 ---
 
@@ -127,4 +127,4 @@ Remaining follow-up:
 ## Related documentation
 
 - [Diagnosis debrief and toolkit improvements](../debrief/docs/2026-11-03-usbaymkt-render-consumer-stalled.md)
-- [Platform knowledge: video render queue delivery](../platform/docs/nats-video-render-queue-delivery.md)
+- [Platform knowledge: video render queue delivery](../platform/docs/flows/nats-video-render-queue-delivery.md)

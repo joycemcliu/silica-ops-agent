@@ -4,7 +4,7 @@ slug: jetstream-consumer-delivery-stalled
 services: [video-server, video-dge-renderer, nats]
 tags: [jetstream, consumer, rendering, queuing, delivery, leadership]
 status: reviewed
-last_verified: 2026-11-06
+last_verified: 2026-11-10
 applies_to:
   nats_server: "2.10.28"
   video_server: "1.6.5"
@@ -21,7 +21,7 @@ source_incidents:
 - Retained messages match the consumer filter and include sequences beyond its delivery/acknowledgment position.
 - A preceding `Received jetstream.consumer error: nats: leadership change` may be present; it is a correlation to investigate, not a sufficient diagnosis.
 
-Platform explanation: [video render queue delivery](../../platform/docs/nats-video-render-queue-delivery.md). Instance-specific identifiers, counts, times and recovery evidence are in the linked incident, not in this reusable procedure.
+Platform explanation: [video render queue delivery](../../platform/docs/flows/nats-video-render-queue-delivery.md). Instance-specific identifiers, counts, times and recovery evidence are in the linked incident, not in this reusable procedure.
 
 Repository paths use `SILICA_REPO=../silica` and `SILICA_ENV_REPO=../silica-environments`, relative to the ops-agent repository root. Follow the current root configuration if a future session has different configured values; do not silently substitute defaults.
 
