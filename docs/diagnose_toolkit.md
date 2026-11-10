@@ -2,7 +2,7 @@
 
 Use these tools to gather evidence during diagnosis.
 
-Paths below are relative to this ops-agent repository. For installation and prerequisites, see the [setup guides](setup/INDEX.md).
+Paths below are relative to this ops-agent repository.
 
 ## Environment access
 
@@ -62,3 +62,11 @@ Use these hints to select a candidate, then confirm its hostname, operating syst
 - Refresh the MCP connections and available tools, then retry the read-only query. Hermes provides `/reload-mcp` as a session command, not a shell command. Use the session's refresh control when available; if the worker cannot invoke it, ask the human to run `/reload-mcp` in the affected Hermes session and then retry.
 - If refresh does not restore the tools, report the failure to the human. Do not edit MCP configuration or substitute shell-based HTTP queries as part of this workflow.
 - Leave Grafana forwarding running after diagnosis, including forwarding restored during the session.
+
+## Optional skills
+
+Skills in [`docs/skills/`](skills/) extend this toolkit for specific tasks. Load only a matching `SKILL.md` when useful; they are not required steps for every diagnosis. The diagnosis permissions apply unchanged, and loading a skill does not authorize changes or render experiments.
+
+| Skill                                                       | When useful                                                                                                                                                                                                         |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [AE diagnostic test launch](skills/ae-render-test-launch/SKILL.md) | Preflight a Windows renderer's worker context or launch an authorized controlled AE render with isolated output, deadlines, and validation. Windows/AE end-to-end execution of this new runner remains not-checked. |
