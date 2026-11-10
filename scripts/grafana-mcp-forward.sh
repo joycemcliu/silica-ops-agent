@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 STATE="$ROOT/.tools/grafana-mcp-forward"
 BIN="${KUBECTL_BIN:-kubectl}"
+PLATFORM=$(uname -s)
 DEV=gke_sandboxvr-ops-development_us-west1-a_default-us-west1-a
 PROD=gke_sandboxvr-ops-production_us-west1_default-us-west1
 DEV_IP=127.0.0.1
@@ -19,8 +20,15 @@ alive() {
 check_ports() {
   local listeners
   # Wildcard listeners also occupy the loopback ports used by these forwards.
-  listeners=$(ss -H -ltn "( sport = :$DEV_PORT or sport = :$PROD_PORT )" |
-    awk '$4 ~ /^(127\.0\.0\.1|0\.0\.0\.0|\*|\[::\]):/ { print }')
+  if [[ "$PLATFORM" == Darwin ]]; then
+    # lsof exits 1 when no sockets match the requested ports.
+    listeners=$(lsof -nP -iTCP:"$DEV_PORT" -iTCP:"$PROD_PORT" -sTCP:LISTEN -Fn || [[ $? -eq 1 ]])
+    listeners=$(printf '%s\n' "$listeners" |
+      awk '/^n(127\.0\.0\.1|0\.0\.0\.0|\*|\[::\]):/ { print substr($0, 2) }')
+  else
+    listeners=$(ss -H -ltn "( sport = :$DEV_PORT or sport = :$PROD_PORT )" |
+      awk '$4 ~ /^(127\.0\.0\.1|0\.0\.0\.0|\*|\[::\]):/ { print }')
+  fi
   if [[ -n "$listeners" ]]; then
     echo 'Cannot start: a required local port is already listening:' >&2
     printf '%s\n' "$listeners" >&2
@@ -87,6 +95,10 @@ forward() {
 
 case "${1:-start}" in
   start)
+    # Serialize the PID check and readiness wait across simultaneous callers.
+    command -v flock >/dev/null || { echo 'Missing required command: flock' >&2; exit 1; }
+    exec 8>"$STATE/start.lock"
+    flock 8
     if alive; then
       echo "Already running (PID $(cat "$STATE/pid"))."
       report_forward grafana_mcp_ops_dev "$DEV_IP" "$DEV_PORT" || true
@@ -96,7 +108,17 @@ case "${1:-start}" in
     fi
     echo 'Checking kubectl and required shell tools...'
     command -v "$BIN" >/dev/null || { echo "Install kubectl on PATH or set KUBECTL_BIN to its executable path." >&2; exit 1; }
-    for tool in bash curl flock setsid ss awk tail wc; do
+    tools=(bash curl flock awk tail wc)
+    if [[ "$PLATFORM" == Darwin ]]; then
+      tools+=(lsof)
+      [[ -x "$ROOT/.venv/bin/python" ]] || {
+        echo 'Missing repo-local .venv/bin/python; follow docs/setup/setup-python-venv.md.' >&2
+        exit 1
+      }
+    else
+      tools+=(setsid ss)
+    fi
+    for tool in "${tools[@]}"; do
       command -v "$tool" >/dev/null || { echo "Missing required command: $tool" >&2; exit 1; }
     done
     echo "kubectl: $(command -v "$BIN")"
@@ -106,11 +128,16 @@ case "${1:-start}" in
     rm -f "$STATE/ready"
     touch "$STATE/forward.log"
     first_log_line=$(( $(wc -l < "$STATE/forward.log") + 1 ))
-    # A separate session keeps forwarding alive after the calling terminal exits.
-    setsid bash "$0" run </dev/null >>"$STATE/forward.log" 2>&1 &
+    # macOS has no setsid command; use the repo Python for the same syscall.
+    if [[ "$PLATFORM" == Darwin ]]; then
+      "$ROOT/.venv/bin/python" -c 'import os, sys; os.setsid(); os.execvp("bash", ["bash", sys.argv[1], "run"])' "$0" \
+        8>&- </dev/null >>"$STATE/forward.log" 2>&1 &
+    else
+      setsid bash "$0" run 8>&- </dev/null >>"$STATE/forward.log" 2>&1 &
+    fi
     child_pid=$!
     echo "Supervisor started (PID $child_pid). Waiting for both tunnels; kubectl output follows."
-    tail -n "+$first_log_line" -f --pid="$child_pid" --sleep-interval=0.2 "$STATE/forward.log" &
+    tail -n "+$first_log_line" -f "$STATE/forward.log" &
     log_pid=$!
     cleanup_start() {
       kill -TERM "$log_pid" 2>/dev/null || true
@@ -170,14 +197,14 @@ case "${1:-start}" in
     flock -n 9 || exit 1
     echo $$ > "$STATE/pid"
     rm -f "$STATE/ready"
-    forward_pids=()
+    dev_pid='' prod_pid=''
     cleanup() {
       trap - EXIT INT TERM
-      for pid in "${forward_pids[@]}"; do
-        kill -TERM "$pid" 2>/dev/null || true
+      for pid in "$dev_pid" "$prod_pid"; do
+        [[ -z "$pid" ]] || kill -TERM "$pid" 2>/dev/null || true
       done
-      for pid in "${forward_pids[@]}"; do
-        wait "$pid" || true
+      for pid in "$dev_pid" "$prod_pid"; do
+        [[ -z "$pid" ]] || wait "$pid" || true
       done
       rm -f "$STATE/pid" "$STATE/ready"
     }
@@ -186,14 +213,18 @@ case "${1:-start}" in
     check_ports
     # Run as the caller so GKE credential plugins retain their normal environment.
     forward "$DEV" "$DEV_IP" "$DEV_PORT" &
-    forward_pids+=("$!")
+    dev_pid=$!
     forward "$PROD" "$PROD_IP" "$PROD_PORT" &
-    forward_pids+=("$!")
+    prod_pid=$!
     for ((i=0; i<90; i++)); do
       if forwards_reachable 2>/dev/null; then
         touch "$STATE/ready"
-        wait -n "${forward_pids[@]}"
-        exit $?
+        # Bash 3.2 on macOS has no wait -n; stop if either worker exits.
+        while kill -0 "$dev_pid" 2>/dev/null && kill -0 "$prod_pid" 2>/dev/null; do
+          sleep 1 9>&-
+        done
+        echo 'A forwarding worker exited unexpectedly.' >&2
+        exit 1
       fi
       sleep 1
     done
