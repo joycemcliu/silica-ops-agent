@@ -16,7 +16,7 @@ report_to_agent() {
 
 die() {
   echo "ERROR: $*" >&2
-  report_to_agent "Diagnosis startup failed: $*. Inform the user of this reason before diagnosis. For password-file failures, ask the user to configure the indicated file; never ask them to paste passwords into chat. Do not claim unavailable services are usable."
+  report_to_agent "Diagnosis startup failed: $*. Inform the user of this error only. Do not troubleshoot, retry, or take any follow-up actions for this failure."
   # Codex consumes additionalContext on success; a failed check must still reach the model.
   [[ -z "$hook_event" ]] || exit 0
   exit 1
@@ -39,7 +39,7 @@ case "${1:-}" in
     echo "Usage: $0"
     echo 'Checks production SSH and Windows password files before updating repositories.'
     echo 'Updates both config.env repositories with fetch --prune, checkout master -f, and pull.'
-    echo 'Discards tracked local changes, then starts both Grafana MCP forwards and checks MCP handshakes.'
+    echo 'Discards tracked local changes in both repositories.'
     exit 0
     ;;
   '') ;;
@@ -47,7 +47,7 @@ case "${1:-}" in
 esac
 [[ $# -eq 0 ]] || die 'No arguments expected.'
 
-for tool in git flock stat jq curl; do
+for tool in git flock stat jq; do
   command -v "$tool" >/dev/null || die "Missing required command: $tool"
 done
 
@@ -103,52 +103,4 @@ for repo in "${repos[@]}"; do
     git -C "$repo" pull || die "Could not update $repo; session startup stopped."
 done
 
-# Background forwards must not inherit the startup lock or hook output pipe.
-if output=$(bash "$ROOT/scripts/grafana-mcp-forward.sh" start 9>&- 3>&- 2>&1); then
-  printf '%s\n' "$output"
-else
-  die "Cannot use Grafana MCP servers: forwarding startup failed. $output"
-fi
-if output=$(bash "$ROOT/scripts/grafana-mcp-forward.sh" status 9>&- 3>&- 2>&1); then
-  printf '%s\n' "$output"
-else
-  die "Cannot use Grafana MCP servers: forwarding connectivity check failed. $output"
-fi
-
-check_grafana_mcp() {
-  local name=$1 port=$2 response error
-  # Unlike the forwarding status check, require a valid MCP initialize response.
-  if response=$(curl --noproxy '*' --silent --show-error --fail --max-time 10 \
-    -H "Host: localhost:$port" -H 'Content-Type: application/json' \
-    -H 'Accept: application/json, text/event-stream' \
-    --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"diagnose-startup-check","version":"1"}}}' \
-    "http://127.0.0.1:$port/mcp" 2>&1); then
-    # Streamable HTTP can return JSON or an SSE message containing JSON.
-    response=$(printf '%s' "$response" | jq -Rrs '
-      fromjson? // (split("\n") | map(select(startswith("data:")) | ltrimstr("data:") | fromjson?) | map(select(.id == 1)) | .[0])
-    ') || response=''
-    if [[ -n "$response" ]] && printf '%s' "$response" | jq -e '
-      .jsonrpc == "2.0" and .id == 1 and .error == null and
-      (.result.protocolVersion | type == "string" and length > 0) and
-      (.result.capabilities.tools | type == "object")
-    ' >/dev/null 2>&1; then
-      echo "$name: MCP handshake succeeded."
-      return 0
-    fi
-    error=$(printf '%s' "$response" | jq -r '.error.message // "invalid MCP initialize response or missing tools capability"' 2>/dev/null)
-    response=${error:-invalid MCP initialize response}
-  fi
-  echo "Cannot use Grafana MCP server $name at 127.0.0.1:$port: $response" >&2
-  return 1
-}
-
-failures=''
-for entry in sandbox_dev_grafana:60007 sandbox_prod_grafana:60008; do
-  if output=$(check_grafana_mcp "${entry%:*}" "${entry##*:}" 2>&1); then
-    printf '%s\n' "$output"
-  else
-    failures+="$output"$'\n'
-  fi
-done
-[[ -z "$failures" ]] || die "$failures"
-report_to_agent 'Session startup complete. Both Grafana MCP endpoints passed an MCP handshake. This does not verify the agent runtime connections: check that its Grafana MCP tools are available before use. If they are unavailable, inform the user that Grafana MCP cannot be used and include the runtime connection error; do not infer availability from this endpoint check.'
+report_to_agent 'Session startup complete.'

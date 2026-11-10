@@ -77,32 +77,9 @@ echo "$1" >> "$FORWARD_LOG"
 if [[ "$1" == status ]]; then exit "${FORWARD_STATUS:-0}"; fi
 exit "${FORWARD_START_STATUS:-0}"
 """)
-        self.write_tool("curl", f"#!{sys.executable}\n" + """
-import json, os, sys
-args = sys.argv[1:]
-port = args[-1].split(':')[-1].split('/')[0]
-assert 'Host: localhost:' + port in args
-assert 'Accept: application/json, text/event-stream' in args
-request = json.loads(args[args.index('--data') + 1])
-assert request['method'] == 'initialize'
-mode = os.environ.get('MCP_DEV_MODE' if port == '60007' else 'MCP_PROD_MODE', 'ok')
-if mode in ('refused', 'timeout', 'http403'):
-    print({'refused': 'curl: (7) Connection refused',
-           'timeout': 'curl: (28) Operation timed out',
-           'http403': 'curl: (22) The requested URL returned error: 403'}[mode], file=sys.stderr)
-    sys.exit(7)
-if mode == 'invalid':
-    print('not an MCP response')
-    sys.exit(0)
-response = {'jsonrpc': '2.0', 'id': 1, 'result': {
-    'protocolVersion': '2025-06-18', 'capabilities': {'tools': {}}}}
-if mode == 'error':
-    response = {'jsonrpc': '2.0', 'id': 1, 'error': {'code': -32603, 'message': 'Grafana unavailable'}}
-if mode == 'no_tools':
-    response['result']['capabilities'] = {}
-body = json.dumps(response)
-print('event: message\\ndata: ' + body + '\\n' if mode == 'sse' else body)
-""")
+        self.curl_log = self.base / "curl.log"
+        self.env["CURL_LOG"] = str(self.curl_log)
+        self.write_tool("curl", '#!/usr/bin/env bash\necho called >> "$CURL_LOG"\nexit 99\n')
         self.env.update(GIT_AUTHOR_NAME="Test", GIT_COMMITTER_NAME="Test",
                         GIT_AUTHOR_EMAIL="test@example.com", GIT_COMMITTER_EMAIL="test@example.com",
                         GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
@@ -131,7 +108,7 @@ print('event: message\\ndata: ' + body + '\\n' if mode == 'sse' else body)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def test_updates_both_repositories_and_prunes_before_starting_forwards(self):
+    def test_updates_both_repositories_and_prunes_without_starting_forwards(self):
         for index, (repo, remote) in enumerate(zip(self.repos, self.remotes)):
             seed = self.base / f"seed-{index}"
             self.git(self.base, "clone", str(remote), str(seed))
@@ -149,7 +126,7 @@ print('event: message\\ndata: ' + body + '\\n' if mode == 'sse' else body)
             self.assertEqual((repo / "tracked").read_text(), "remote update\n")
             self.assertEqual(self.git(repo, "status", "--porcelain"), "")
             self.assertNotIn("origin/stale", self.git(repo, "branch", "-r"))
-        self.assertEqual(self.forward_log.read_text().splitlines(), ["start", "status"])
+        self.assertFalse(self.forward_log.exists())
 
     def test_bad_configuration_stops_before_checkout_or_forwarding(self):
         cases = [None, "SILICA_REPO=../silica\n", "SILICA_REPO=../silica\nSILICA_ENV_REPO=''\n",
@@ -178,17 +155,18 @@ print('event: message\\ndata: ' + body + '\\n' if mode == 'sse' else body)
             self.assertEqual(self.git(repo, "branch", "--show-current"), "working")
             self.assertEqual((repo / "tracked").read_text(), "local changes to discard\n")
 
-    def test_unreachable_forward_fails_startup(self):
-        result = self.run_shell(self.script, FORWARD_STATUS="7")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Cannot use Grafana MCP servers: forwarding connectivity check failed", result.stdout)
-        self.assertNotIn("Session startup complete.", result.stdout)
+    def test_skips_forward_startup_status_and_mcp_connection_checks(self):
+        result = self.run_shell(self.script, FORWARD_START_STATUS="9", FORWARD_STATUS="7")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Session startup complete.", result.stdout)
+        self.assertFalse(self.forward_log.exists())
+        self.assertFalse(self.curl_log.exists())
 
-    def test_forward_start_failure_informs_agent(self):
-        result = self.run_shell(self.script, FORWARD_START_STATUS="9")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("forwarding startup failed", result.stdout)
-        self.assertEqual(self.forward_log.read_text().splitlines(), ["start"])
+    def test_forwarding_script_is_not_required(self):
+        (self.root / "scripts/grafana-mcp-forward.sh").unlink()
+        result = self.run_shell(self.script)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Session startup complete.", result.stdout)
 
     def test_password_failure_is_delivered_as_hook_context(self):
         self.password_file.unlink()
@@ -200,44 +178,28 @@ print('event: message\\ndata: ' + body + '\\n' if mode == 'sse' else body)
                 context = output["hookSpecificOutput"]
                 self.assertEqual(context["hookEventName"], event)
                 self.assertIn("Inform the user", context["additionalContext"])
-                self.assertIn("configure the indicated file", context["additionalContext"])
+                self.assertIn("Inform the user of this error only", context["additionalContext"])
+                self.assertIn("Do not troubleshoot, retry, or take any follow-up actions", context["additionalContext"])
                 self.assertIn(str(self.password_file), context["additionalContext"])
                 self.assertNotIn("fixture-password", result.stdout + result.stderr)
                 self.assertFalse(self.forward_log.exists())
 
-    def test_mcp_checks_both_servers_and_reports_failure_reasons(self):
-        cases = {"refused": "Connection refused", "timeout": "Operation timed out",
-                 "http403": "403", "invalid": "invalid MCP initialize response",
-                 "error": "Grafana unavailable", "no_tools": "missing tools capability"}
-        for mode, reason in cases.items():
-            with self.subTest(mode=mode):
-                result = self.run_shell(self.script, MCP_DEV_MODE=mode, MCP_PROD_MODE="refused")
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("sandbox_dev_grafana", result.stdout)
-                self.assertIn(reason, result.stdout)
-                self.assertIn("sandbox_prod_grafana", result.stdout)
-                self.assertIn("Connection refused", result.stdout)
-                self.assertIn("Inform the user", result.stdout)
-                self.assertNotIn("Session startup complete.", result.stdout)
-
-    def test_mcp_failure_is_delivered_as_hook_context_without_progress_output(self):
-        result = self.run_shell(self.script, input='{"hook_event_name":"SessionStart"}',
-                                MCP_PROD_MODE="timeout")
+    def test_git_failure_is_delivered_as_hook_context_without_progress_output(self):
+        self.git(self.repos[0], "remote", "set-url", "origin", str(self.base / "missing.git"))
+        result = self.run_shell(self.script, input='{"hook_event_name":"SessionStart"}')
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)
-        self.assertIn("sandbox_prod_grafana", output["hookSpecificOutput"]["additionalContext"])
-        self.assertIn("Operation timed out", output["systemMessage"])
+        self.assertIn("Could not update", output["systemMessage"])
+        self.assertIn("Do not troubleshoot, retry, or take any follow-up actions", output["systemMessage"])
         self.assertIn("Updating", result.stderr)
 
-    def test_mcp_accepts_sse_and_hook_success_warns_about_runtime_connections(self):
-        result = self.run_shell(self.script, input='{"hook_event_name":"SessionStart"}',
-                                MCP_DEV_MODE="sse")
+    def test_hook_success_reports_completion_without_starting_forwards(self):
+        result = self.run_shell(self.script, input='{"hook_event_name":"SessionStart"}')
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)
-        context = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Session startup complete.", context)
-        self.assertIn("does not verify the agent runtime connections", context)
-        self.assertIn("MCP handshake succeeded", result.stderr)
+        self.assertEqual(output["hookSpecificOutput"]["additionalContext"], "Session startup complete.")
+        self.assertFalse(self.forward_log.exists())
+        self.assertFalse(self.curl_log.exists())
 
     def test_invalid_password_file_stops_before_git_updates_or_forwarding(self):
         missing = self.base / "missing-password"
@@ -345,7 +307,7 @@ fi
                 if process.poll() is None:
                     process.kill()
                 process.wait()
-        self.assertEqual(self.forward_log.read_text().splitlines(), ["start", "status"] * 2)
+        self.assertFalse(self.forward_log.exists())
 
 
 class GrafanaStartTests(StartupFixture):

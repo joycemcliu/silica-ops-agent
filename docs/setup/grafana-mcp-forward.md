@@ -69,7 +69,7 @@ Confirm both contexts in the table are present. Once forwarding is authorized, s
 
 `start` prints the kubectl path, context and port mappings, supervisor PID, live kubectl output, and readiness for each tunnel while waiting. It returns once both tunnels are reachable; forwarding then continues in the background.
 
-Concurrent `start` calls wait on a startup lock before checking the supervisor PID, so only one caller launches it and the others reuse it. The [diagnosis startup script](../../scripts/diagnose-agent-session-start.sh) updates both configured repositories before starting and checking these forwards.
+Concurrent `start` calls wait on a startup lock before checking the supervisor PID, so only one caller launches it and the others reuse it. The [diagnosis startup script](../../scripts/diagnose-agent-session-start.sh) updates both configured repositories; it does not start or check these forwards.
 
 `status` reports the supervisor and each forward separately, and exits nonzero if either forward is unreachable. Any HTTP response, including 404, confirms transport connectivity; this does not check MCP application health or require a `/health` route.
 
