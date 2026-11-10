@@ -21,7 +21,7 @@ class StoreSshuttleTests(unittest.TestCase):
         self.log = self.root / "calls.jsonl"
         tool = self.bin / "fake-tool"
         tool.write_text("""#!/usr/bin/python3
-import json, os, sys
+import json, os, sys, time
 name = os.path.basename(sys.argv[0])
 args = sys.argv[1:]
 with open(os.environ['CALL_LOG'], 'a') as log:
@@ -30,15 +30,21 @@ if name == 'kubectl' and args[:2] == ['get', 'statefulset']:
     if os.environ.get('QUERY_FAIL'):
         sys.exit(1)
     print(os.environ.get('SUBNET', '26'))
+elif name == 'kubectl' and 'port-forward' in args:
+    time.sleep(30)
 elif name == 'pgrep':
+    if os.environ.get('NO_EXISTING_FORWARD'):
+        sys.exit(1)
     print('4242')
 elif name == 'ps':
     print('kubectl port-forward ' + os.environ.get('FORWARD_TARGET', 'svc/hkcwbmid-ssh') + ' 40026:22')
 elif name == 'sshuttle':
     sys.exit(int(os.environ.get('SSHUTTLE_STATUS', '0')))
+elif name == 'nc':
+    sys.exit(int(os.environ.get('NC_STATUS', '0')))
 """)
         tool.chmod(0o755)
-        for name in ("kubectl", "sshuttle", "pgrep", "ps", "timeout"):
+        for name in ("kubectl", "sshuttle", "pgrep", "ps", "nc", "sshpass"):
             (self.bin / name).symlink_to(tool)
         self.env = dict(os.environ)
         for key in ("PROD_SSH_NODE", "PN_NODE", "PROD_SSH_USER"):
@@ -100,6 +106,39 @@ elif name == 'sshuttle':
     def test_sshuttle_exit_status_is_preserved(self):
         result = self.run_script("HKCWBMID", SSHUTTLE_STATUS="7")
         self.assertEqual(result.returncode, 7, result.stderr)
+
+    def test_existing_forward_uses_bounded_netcat_probe(self):
+        result = self.run_script("hkcwbmid")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls("nc"), [["-z", "-w", "1", "127.0.0.1", "40026"]])
+
+    def test_unresponsive_existing_forward_never_starts_sshuttle(self):
+        result = self.run_script("hkcwbmid", NC_STATUS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not responding", result.stderr)
+        self.assertEqual(self.calls("sshuttle"), [])
+
+    def test_new_forward_uses_netcat_probe(self):
+        result = self.run_script("hkcwbmid", NO_EXISTING_FORWARD="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Starting SSH port-forward", result.stderr)
+        self.assertEqual(self.calls("nc"), [["-z", "-w", "1", "127.0.0.1", "40026"]])
+
+    def test_native_password_file_permissions(self):
+        password_file = self.root / "password"
+        password_file.write_text("test-password\n")
+        for mode, allowed in ((0o600, True), (0o640, False), (0o604, False)):
+            with self.subTest(mode=oct(mode)):
+                self.log.unlink(missing_ok=True)
+                password_file.chmod(mode)
+                result = self.run_script("hkcwbmid", PROD_SSH_PASSWORD_FILE=str(password_file))
+                if allowed:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("sshpass", self.calls("sshuttle")[0][1])
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("must not be accessible", result.stderr)
+                    self.assertEqual(self.calls("sshuttle"), [])
 
 
 if __name__ == "__main__":

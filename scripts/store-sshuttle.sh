@@ -13,7 +13,7 @@ STORE_REQUEST=""
 PASSWORD_FILE_DEFAULT="${HOME}/.local/secrets/silica-prod-master-node-password"
 PASSWORD_FILE="${PROD_SSH_PASSWORD_FILE-$PASSWORD_FILE_DEFAULT}"
 PASSWORD_FILE_EXPLICIT=0
-[[ -v PROD_SSH_PASSWORD_FILE ]] && PASSWORD_FILE_EXPLICIT=1
+[[ -n "${PROD_SSH_PASSWORD_FILE+x}" ]] && PASSWORD_FILE_EXPLICIT=1
 CREATED_PORT_FORWARD_PID=""
 QUIET=0
 
@@ -66,10 +66,15 @@ validate_password_file() {
     exit 1
   fi
 
-  mode=$(stat -c '%a' "$password_file" 2>/dev/null) || {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    mode=$(stat -f '%Lp' "$password_file" 2>/dev/null)
+  else
+    mode=$(stat -c '%a' "$password_file" 2>/dev/null)
+  fi
+  if [[ $? -ne 0 ]]; then
     error "Could not read permissions for password file '${password_file}'."
     exit 1
-  }
+  fi
   if [[ ! "$mode" =~ ^[0-7]{3,4}$ ]]; then
     error "Unexpected permission format '${mode}' for password file '${password_file}'."
     exit 1
@@ -83,13 +88,18 @@ validate_password_file() {
   fi
 }
 
+port_listening() {
+  local local_port="$1"
+  nc -z -w 1 127.0.0.1 "$local_port" >/dev/null 2>&1
+}
+
 wait_for_ssh_port() {
   local local_port="$1"
   local port_forward_pid="$2"
   local log_file="$3"
   local retry=0
 
-  while ! timeout 1 bash -c '</dev/tcp/127.0.0.1/$1' _ "$local_port" >/dev/null 2>&1; do
+  while ! port_listening "$local_port"; do
     retry=$((retry + 1))
 
     if ! kill -0 "$port_forward_pid" 2>/dev/null; then
@@ -233,7 +243,7 @@ if [[ -n "$STORE_REQUEST" ]]; then
   fi
 fi
 
-for command_name in kubectl ssh sshuttle timeout bash stat; do
+for command_name in kubectl ssh sshuttle nc bash stat; do
   require_command "$command_name"
 done
 
@@ -355,7 +365,7 @@ if [[ -n "$EXISTING_PIDS" ]]; then
     error "Found port-forward process for ${PORT_FORWARD_TARGET}, but could not determine its local SSH port. PID: ${FIRST_PID}"
     exit 1
   fi
-  if ! timeout 1 bash -c '</dev/tcp/127.0.0.1/$1' _ "$SSH_PORT" >/dev/null 2>&1; then
+  if ! port_listening "$SSH_PORT"; then
     error "Existing port-forward PID ${FIRST_PID} for ${PORT_FORWARD_TARGET} is not responding on local SSH port ${SSH_PORT}."
     printf 'Kill stale forwards with: kill-pn-port-forwards.sh\n' >&2
     exit 1

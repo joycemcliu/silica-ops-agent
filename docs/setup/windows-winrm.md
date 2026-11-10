@@ -25,7 +25,7 @@ Follow the [diagnosis permissions](../diagnose_agent.md#permissions). Reuse exis
 
 For both environments, use the [repository-local Python environment](setup-python-venv.md), Windows credentials, and network access to the target PC.
 
-For prod only, use WSL, `sshuttle`, a working firewall backend such as `iptables`, and the commands required by `scripts/store-sshuttle.sh`: `kubectl`, `ssh`, `timeout`, `bash`, and `stat`. The wrapper also uses standard tools including `pgrep` and `ps`. `jq` is needed only for the legacy mode without a store-code argument. `sshpass` is required only when using the tunnel's optional SSH password file. The production Kubernetes context must be configured and authenticated, with permission to read the store socat StatefulSet as well as access and port-forward its service/pods:
+For prod only, use WSL, `sshuttle`, a working firewall backend such as `iptables`, and the commands required by `scripts/store-sshuttle.sh`: `kubectl`, `ssh`, `nc` (netcat), `bash`, and `stat`. The wrapper also uses standard tools including `pgrep` and `ps`. `jq` is needed only for the legacy mode without a store-code argument. `sshpass` is required only when using the tunnel's optional SSH password file. The production Kubernetes context must be configured and authenticated, with permission to read the store socat StatefulSet as well as access and port-forward its service/pods:
 
 ```text
 gke_infra-automate-production_us-west1_default-us-west1
