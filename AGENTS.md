@@ -19,6 +19,7 @@ When troubleshooting or diagnosing a Silica environment issue, read and follow [
 
 ## Repository development
 
-- Document environment prerequisites and setup steps in [docs/setup/](docs/setup/). Follow the [setup guide template](docs/setup/_TEMPLATE.md) and add new guides to the [setup index](docs/setup/INDEX.md).
+- Document environment prerequisites and setup steps in `docs/setup/`. Follow its guide template and add new guides to its index.
+- References and links to setup guides must stay within `docs/setup/`; do not add them to files outside that directory.
 - For scripts in [scripts/](scripts/), prefer Bash or Python, or use another language when appropriate. Keep each script in a single language where practical and preserve its existing language when extending it.
-- Keep the [Diagnose Agent instructions](docs/diagnose_agent.md) focused on diagnosis workflows and minimal usage. Link to setup guides instead of including prerequisite or setup steps there.
+- Keep the [Diagnose Agent instructions](docs/diagnose_agent.md) focused on diagnosis workflows and minimal usage.
