@@ -147,14 +147,47 @@ public static class AETestJob {
 }
 
 function Invoke-LoggedProcess([string]$Executable, [string[]]$Arguments, [string]$Stem, [datetime]$Deadline, [string]$WorkingDirectory) {
-    $milliseconds = [Math]::Min([int]::MaxValue, [Math]::Max(0, ($Deadline - [DateTime]::UtcNow).TotalMilliseconds))
-    if ($milliseconds -le 0) { throw 'Diagnostic deadline exceeded.' }
     Write-Json ([ordered]@{ executable = $Executable; arguments = $Arguments; workingDirectory = $WorkingDirectory; deadlineUtc = $Deadline.ToString('o') }) "$Stem.command.json"
-    $quoted = @($Arguments | ForEach-Object { ConvertTo-NativeArgument $_ })
-    $process = Start-Process -FilePath $Executable -ArgumentList ($quoted -join ' ') -WorkingDirectory $WorkingDirectory -PassThru -NoNewWindow `
-        -RedirectStandardOutput "$Stem.stdout.log" -RedirectStandardError "$Stem.stderr.log"
-    if (-not $process.WaitForExit([int]$milliseconds)) { throw 'Diagnostic deadline exceeded.' }
-    $process.ExitCode
+    $outcome = [ordered]@{ pid = $null; exitCode = $null; timedOut = $false; error = $null }
+    try {
+        $milliseconds = [Math]::Min([int]::MaxValue, [Math]::Max(0, ($Deadline - [DateTime]::UtcNow).TotalMilliseconds))
+        if ($milliseconds -le 0) { throw [TimeoutException]::new('Diagnostic deadline exceeded.') }
+        $quoted = @($Arguments | ForEach-Object { ConvertTo-NativeArgument $_ })
+        $process = Start-Process -FilePath $Executable -ArgumentList ($quoted -join ' ') -WorkingDirectory $WorkingDirectory -PassThru -NoNewWindow `
+            -RedirectStandardOutput "$Stem.stdout.log" -RedirectStandardError "$Stem.stderr.log"
+        $outcome.pid = $process.Id
+        if (-not $process.WaitForExit([int]$milliseconds)) { throw [TimeoutException]::new('Diagnostic deadline exceeded.') }
+        $outcome.exitCode = $process.ExitCode
+        $process.ExitCode
+    } catch {
+        $outcome.timedOut = $_.Exception -is [TimeoutException]
+        $outcome.error = $_.Exception.Message
+        throw
+    } finally { Write-Json $outcome "$Stem.result.json" }
+}
+
+function Copy-NativeDumps($Request, [string]$Directory, $SeenDumps, $Result) {
+    # Adobe can finish writing a report after aerender has already returned.
+    Start-Sleep -Seconds 5
+    $Result.dumpCollection.status = 'collected'
+    try {
+        $dumps = @(Get-ChildItem -LiteralPath $Request.dump_directory -Filter '*.dmp' -File -ErrorAction Stop)
+        $index = 0
+        foreach ($dump in $dumps) {
+            if ($SeenDumps.ContainsKey($dump.FullName) -and $SeenDumps[$dump.FullName] -eq "$($dump.Length):$($dump.LastWriteTimeUtc.Ticks)") { continue }
+            $destination = Join-Path $Directory "native-$index.dmp"
+            $index++
+            try {
+                Copy-Item -LiteralPath $dump.FullName -Destination $destination -ErrorAction Stop
+                $after = Get-Item -LiteralPath $dump.FullName -ErrorAction Stop
+                if ($after.Length -ne $dump.Length -or $after.LastWriteTimeUtc -ne $dump.LastWriteTimeUtc) { throw 'Dump changed while being copied; retained copy may be incomplete.' }
+                $Result.copiedDumps += [ordered]@{ source = $dump.FullName; retained = $destination; attribution = 'time-correlated; process ownership not proven' }
+            } catch {
+                $Result.dumpCollection.errors += "$($dump.FullName): $($_.Exception.Message)"
+            }
+        }
+    } catch { $Result.dumpCollection.errors += $_.Exception.Message }
+    if ($Result.dumpCollection.errors.Count) { $Result.dumpCollection.status = 'partial' }
 }
 
 function Assert-ValidOutput($Request, [string]$Directory, [datetime]$Deadline) {
@@ -180,6 +213,11 @@ function Invoke-DesktopRender([string]$Directory) {
         status = 'failed'; started = $started.ToString('o'); runDirectory = $Directory
         runnerPid = $PID; runnerCreated = $self.StartTime.ToUniversalTime().ToString('o')
         error = $null; copiedDumps = @()
+        exitCode = $null
+        render = [ordered]@{ status = 'not_started'; exitCode = $null; timedOut = $false; error = $null; nativeErrors = @() }
+        validation = [ordered]@{ status = 'not_run'; error = $null; timedOut = $false }
+        deadline = [ordered]@{ exceeded = $false; phase = $null }
+        dumpCollection = [ordered]@{ status = 'not_requested'; graceSeconds = 5; errors = @() }
     }
     $seenDumps = @{}
     $dumpSnapshotTaken = $false
@@ -206,32 +244,47 @@ function Invoke-DesktopRender([string]$Directory) {
         Copy-Item -LiteralPath $request.project -Destination $project
         if ((Get-FileHash -LiteralPath $project -Algorithm SHA256).Hash -ne $preflight.sourceHash) { throw 'Source project changed after preflight.' }
         if ($request.dump_directory) {
+            $result.dumpCollection.status = 'not_started'
             if (-not (Test-Path -LiteralPath $request.dump_directory -PathType Container)) { throw 'Configured dump directory is unavailable in desktop context.' }
             foreach ($dump in Get-ChildItem -LiteralPath $request.dump_directory -Filter '*.dmp' -File) { $seenDumps[$dump.FullName] = "$($dump.Length):$($dump.LastWriteTimeUtc.Ticks)" }
             $dumpSnapshotTaken = $true
         }
         $arguments = @(New-RenderArguments $request $project (Join-Path $Directory $request.output_name))
         $deadline = $started.AddSeconds($request.timeout_seconds)
-        $result.exitCode = Invoke-LoggedProcess $request.aerender $arguments "$Directory\render" $deadline $request.working_directory
-        $nativeErrors = @(Get-Content -LiteralPath "$Directory\render.stdout.log", "$Directory\render.stderr.log" | Select-String 'aerender ERROR|An existing connection was forcibly closed')
-        if ($result.exitCode -ne 0 -or $nativeErrors.Count -gt 0) { throw 'aerender reported a native error; inspect render logs.' }
-        $result.video = Assert-ValidOutput $request $Directory $deadline
-        $result.status = 'completed'
+        $result.render.status = 'failed'
+        try {
+            $result.exitCode = Invoke-LoggedProcess $request.aerender $arguments "$Directory\render" $deadline $request.working_directory
+            $result.render.exitCode = $result.exitCode
+        } catch {
+            $result.render.error = $_.Exception.Message
+            $result.render.timedOut = $_.Exception -is [TimeoutException]
+            if ($result.render.timedOut) { $result.deadline.exceeded = $true; $result.deadline.phase = 'render' }
+        }
+        $result.render.nativeErrors = @(foreach ($log in @("$Directory\render.stdout.log", "$Directory\render.stderr.log")) {
+            if (Test-Path -LiteralPath $log) {
+                Get-Content -LiteralPath $log | Select-String 'aerender ERROR|An existing connection was forcibly closed' | ForEach-Object { $_.Line }
+            }
+        })
+        if ($result.exitCode -eq 0 -and -not $result.render.error -and -not $result.render.nativeErrors.Count) { $result.render.status = 'completed' }
+        # A failed AE process can still leave useful output; retain its validation separately.
+        if (-not $result.render.timedOut) {
+            try {
+                $result.validation.status = 'failed'
+                $result.video = Assert-ValidOutput $request $Directory $deadline
+                $result.validation.status = 'passed'
+            } catch {
+                $result.validation.error = $_.Exception.Message
+                $result.validation.timedOut = $_.Exception -is [TimeoutException]
+                if ($result.validation.timedOut) { $result.deadline.exceeded = $true; $result.deadline.phase = 'validation' }
+            }
+        }
+        if ($result.render.status -eq 'completed' -and $result.validation.status -eq 'passed') { $result.status = 'completed' }
+        else { $result.error = 'Render or output validation failed; inspect render, validation and deadline evidence.' }
     } catch {
         $result.error = $_.Exception.Message
     } finally {
-        if ($dumpSnapshotTaken -and (Test-Path -LiteralPath $request.dump_directory -PathType Container)) {
-            try {
-                $index = 0
-                foreach ($dump in Get-ChildItem -LiteralPath $request.dump_directory -Filter '*.dmp' -File) {
-                    if (-not $seenDumps.ContainsKey($dump.FullName) -or $seenDumps[$dump.FullName] -ne "$($dump.Length):$($dump.LastWriteTimeUtc.Ticks)") {
-                        $destination = Join-Path $Directory "native-$index.dmp"
-                        Copy-Item -LiteralPath $dump.FullName -Destination $destination
-                        $result.copiedDumps += [ordered]@{ source = $dump.FullName; retained = $destination; attribution = 'time-correlated; process ownership not proven' }
-                        $index++
-                    }
-                }
-            } catch { $result.dumpCollectionError = $_.Exception.Message }
+        if ($dumpSnapshotTaken -and $result.render.status -ne 'not_started') {
+            Copy-NativeDumps $request $Directory $seenDumps $result
         }
         try {
             $result.sourceUnchanged = (Get-FileHash -LiteralPath $request.project -Algorithm SHA256).Hash -eq $preflight.sourceHash

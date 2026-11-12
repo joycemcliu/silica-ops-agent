@@ -57,16 +57,17 @@ Windows/AE end-to-end execution remains unverified.
 
    It creates `ae-test-<UUID>` under the output root and a temporary `Silica-AE-<UUID>` task. The task runs with the worker account's interactive token, targets its recorded session ID, and verifies the live worker identity/session again. It opens each input from that desktop context before rendering and tests output-directory access by writing its evidence there. Missing paths fail the test rather than prompting for drive remapping or changing credentials.
 
-   The task joins a private Windows job before starting AE or validation tools. An ordinary child process inherits that job; closing its handle terminates the run's remaining processes. The worker is outside the job. A total render/validation deadline and a Task Scheduler execution limit bound the task. No process-name-wide kill is used.
+   The task joins a private Windows job before starting AE or validation tools. An ordinary child process inherits that job; closing its handle terminates the run's remaining processes. The worker is outside the job. A total render/validation deadline and a Task Scheduler execution limit bound the task. Dump collection has a separate five-second grace period after render/validation finishes or fails, within the scheduler's existing cleanup allowance. No process-name-wide kill is used.
 
-6. Inspect the retained evidence and output. A result is `completed` only when AE returns zero without a recognized native error, the output is nonempty, ffprobe finds exactly the expected number of video frames, full video/audio decoding succeeds, and the source project hash remains unchanged. The controller also checks the worker identity and inventories remaining AE processes before returning success.
+6. Inspect the retained evidence and output. A result is `completed` only when AE returns zero without a recognized native error, the output is nonempty, ffprobe finds exactly the expected number of video frames, full video/audio decoding succeeds, and the source project hash remains unchanged. Validation is attempted even after a nonzero exit or recognized native error, with the remaining render/validation budget. A render deadline skips validation. The controller also checks the worker identity and inventories remaining AE processes before returning success.
 
    | Artifact                                                        | Purpose                                                                                                              |
    | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
    | `preflight.json`, `request.json`, `runner.ps1`, `input.aepx`    | Worker/input context, requested settings, exact runner source, and unchanged project copy. Credentials are excluded. |
    | `render.command.json`, `render.stdout.log`, `render.stderr.log` | AE executable, argument array, working directory, deadline, and native output.                                       |
    | `probe.*`, `decode.*`                                           | Validation command arrays and stdout/stderr.                                                                         |
-   | `result.json`                                                   | Task context, outcome, source integrity, validation, and collected dumps.                                            |
+   | `render.result.json`, `probe.result.json`, `decode.result.json`   | Per-process PID, exit code (null if no exit was observed), timeout flag, and invocation error, when invoked.          |
+   | `result.json`                                                   | Task context, separate render/validation/deadline/dump outcomes, source integrity, probe data, and collected dumps.    |
    | `postflight.json`                                               | Worker identity comparison and remaining AE process inventory, when the controller reaches postflight.               |
    | `native-*.dmp`                                                  | New/changed reports from the specified directory; time correlation alone does not establish process ownership.       |
    | `controller-error.log`, `task-cleanup-error.log`                | Controller failure or failed self-removal of the task, when present.                                                 |
@@ -74,6 +75,15 @@ Windows/AE end-to-end execution remains unverified.
 7. Verify that the named task is gone and inspect any residual AE process before the next trial. The task attempts to remove itself; the connected controller also stops/removes only that generated task. Keep evidence until reviewed. An interrupted WinRM connection does not mean the remote run stopped: use the printed run directory and task name to inspect its state; its own deadline remains active.
 
 ## Interpreting the result
+
+`result.json` keeps `status`, `error`, and the render `exitCode` for existing readers. Use its separate evidence fields to explain failure:
+
+- `render`: status, observed exit code, timeout flag, invocation error, and recognized native error lines from either log. Logs are inspected even after a render timeout.
+- `validation`: `not_run`, `passed`, or `failed`, plus its error and timeout flag. Valid output does not override a failed render.
+- `deadline`: whether the total render/validation deadline was exceeded and whether it happened during `render` or `validation`. This describes the runner's observation, not the native cause.
+- `dumpCollection`: collection status, five-second grace period, and individual collection errors. One unreadable report does not prevent collecting others. New or changed reports are retained; a report that changes while being copied is flagged as a collection error. Reports arriving after the grace period can be missed.
+
+Dump collection errors do not override the render/validation outcome; inspect them separately. A copied dump is time-correlated evidence and does not by itself prove that this run crashed. The detailed fields have local simulated-process regression coverage; live Windows/AE behavior remains unverified.
 
 Matching the worker's account/session and checking its paths improves comparability. It does not establish identical environment variables, elevation, plugin state, preferences, GPU state, or output-module configuration. The task uses a limited interactive token and the explicitly supplied working directory. A mapped drive visible only to a different token can still fail its desktop check.
 

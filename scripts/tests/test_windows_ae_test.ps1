@@ -93,14 +93,32 @@ try {
 
     Test 'process timeout is bounded' {
         function Start-Process {
-            $process = [pscustomobject]@{ ExitCode = 0 }
+            $process = [pscustomobject]@{ Id = 42; ExitCode = 0 }
             $process | Add-Member ScriptMethod WaitForExit { param($Milliseconds) return $false }
             $process
         }
         Assert-Throws { Invoke-LoggedProcess 'fake' @('argument') (Join-Path $temporary 'timeout') ([DateTime]::UtcNow.AddMinutes(1)) $temporary } 'deadline'
+        $outcome = Get-Content -LiteralPath (Join-Path $temporary 'timeout.result.json') -Raw | ConvertFrom-Json
+        Assert ($outcome.timedOut -and $null -eq $outcome.exitCode -and $outcome.pid -eq 42) 'Timeout was confused with a successful exit'
     }
 
-    foreach ($condition in @('completed', 'wrong-context', 'native-error', 'timeout')) {
+    Test 'process exit and startup errors are retained separately from deadline failures' {
+        function Start-Process {
+            $process = [pscustomobject]@{ Id = 43; ExitCode = 7 }
+            $process | Add-Member ScriptMethod WaitForExit { param($Milliseconds) return $true }
+            $process
+        }
+        $stem = Join-Path $temporary 'process-exit'
+        Assert ((Invoke-LoggedProcess 'fake' @() $stem ([DateTime]::UtcNow.AddMinutes(1)) $temporary) -eq 7) 'Exit code lost'
+        $outcome = Get-Content -LiteralPath "$stem.result.json" -Raw | ConvertFrom-Json
+        Assert ($outcome.exitCode -eq 7 -and -not $outcome.timedOut) 'Nonzero exit confused with timeout'
+        function Start-Process { throw 'start denied' }
+        Assert-Throws { Invoke-LoggedProcess 'fake' @() $stem ([DateTime]::UtcNow.AddMinutes(1)) $temporary } 'start denied'
+        $outcome = Get-Content -LiteralPath "$stem.result.json" -Raw | ConvertFrom-Json
+        Assert ($null -eq $outcome.pid -and $null -eq $outcome.exitCode -and $outcome.error -eq 'start denied' -and -not $outcome.timedOut) 'Startup error evidence lost'
+    }
+
+    foreach ($condition in @('completed', 'wrong-context', 'native-error', 'nonzero-exit', 'invalid-output', 'validation-timeout', 'timeout', 'timeout-native-error')) {
         Test "desktop render $condition preserves evidence and cleans its own job/task" {
             $directory = Join-Path $temporary $condition
             New-Item -ItemType Directory -Path $directory | Out-Null
@@ -118,7 +136,7 @@ try {
             }
             Write-Json $request "$directory\request.json"
             Write-Json ([ordered]@{ worker = $context; sourceHash = (Get-FileHash $project).Hash; inputPaths = @() }) "$directory\preflight.json"
-            $state = @{ launched = $false; cleanedTask = $null; openedJob = $false }
+            $state = @{ launched = $false; cleanedTask = $null; openedJob = $false; validated = $false; grace = $false }
             [AETestJob]::Closed = $false
             function Get-WorkerContext { $context }
             function Get-DesktopContext {
@@ -127,16 +145,28 @@ try {
             function Assert-NoActiveAE {}
             function Open-RunJob { $state.openedJob = $true; [IntPtr]99 }
             function Unregister-ScheduledTask { param($TaskName, $Confirm, $ErrorAction) $state.cleanedTask = $TaskName }
+            function Start-Sleep {
+                param($Seconds)
+                Assert ($Seconds -eq 5) 'Unexpected dump grace period'
+                $state.grace = $true
+                'delayed report' | Set-Content -LiteralPath (Join-Path $dumps 'delayed.dmp')
+            }
             function Invoke-LoggedProcess($Executable, $Arguments, $Stem) {
                 $state.launched = $true
                 Write-Json @{ executable = $Executable; arguments = $Arguments } "$Stem.command.json"
                 'new' | Set-Content -LiteralPath (Join-Path $dumps 'new.dmp')
                 $(if ($condition -eq 'native-error') { 'aerender ERROR: native connection closed' } else { 'finished' }) | Set-Content -LiteralPath "$Stem.stdout.log"
-                '' | Set-Content -LiteralPath "$Stem.stderr.log"
-                if ($condition -eq 'timeout') { throw 'Diagnostic deadline exceeded.' }
+                $(if ($condition -eq 'timeout-native-error') { 'aerender ERROR: native connection closed' } else { '' }) | Set-Content -LiteralPath "$Stem.stderr.log"
+                if ($condition -in @('timeout', 'timeout-native-error')) { throw [TimeoutException]::new('Diagnostic deadline exceeded.') }
+                if ($condition -eq 'nonzero-exit') { return 7 }
                 return 0
             }
-            function Assert-ValidOutput { @{ streams = @(@{ nb_read_frames = '100' }) } }
+            function Assert-ValidOutput {
+                $state.validated = $true
+                if ($condition -eq 'invalid-output') { throw 'Output is missing or empty.' }
+                if ($condition -eq 'validation-timeout') { throw [TimeoutException]::new('Diagnostic deadline exceeded.') }
+                @{ streams = @(@{ nb_read_frames = '100' }) }
+            }
             Invoke-DesktopRender $directory
             $result = Get-Content -LiteralPath "$directory\result.json" -Raw | ConvertFrom-Json
             Assert ($result.sourceUnchanged) 'Original project changed'
@@ -146,11 +176,53 @@ try {
                 Assert ($result.status -eq 'failed') 'Wrong-context failure was hidden'
             } else {
                 Assert ($state.launched -and [AETestJob]::Closed) 'Owned job was not closed'
-                Assert (@($result.copiedDumps).Count -eq 1) 'Old dump was included or new dump lost'
+                Assert ($state.grace -and @($result.copiedDumps).Count -eq 2) 'Old dump included or new/delayed dump lost'
+                Assert ($result.dumpCollection.status -eq 'collected') 'Dump collection outcome missing'
                 Assert ($result.status -eq $(if ($condition -eq 'completed') { 'completed' } else { 'failed' })) 'Wrong outcome'
                 Assert (Test-Path -LiteralPath "$directory\render.command.json") 'Exact command was not retained'
+                Assert ($state.validated -eq ($condition -notin @('timeout', 'timeout-native-error'))) 'Output validation incorrectly skipped or attempted after render timeout'
+                Assert ($result.deadline.exceeded -eq ($condition -in @('timeout', 'timeout-native-error', 'validation-timeout'))) 'Deadline outcome incorrect'
+                if ($condition -in @('timeout', 'timeout-native-error')) {
+                    Assert ($result.render.timedOut -and $null -eq $result.exitCode -and $result.deadline.phase -eq 'render') 'Render timeout evidence lost'
+                    if ($condition -eq 'timeout-native-error') { Assert ($result.render.nativeErrors.Count -eq 1) 'Timeout hid native error in stderr' }
+                } elseif ($condition -eq 'validation-timeout') {
+                    Assert ($result.render.status -eq 'completed' -and $result.validation.timedOut -and $result.deadline.phase -eq 'validation') 'Validation timeout misclassified'
+                } elseif ($condition -eq 'native-error') {
+                    Assert ($result.exitCode -eq 0 -and $result.render.nativeErrors.Count -eq 1 -and $result.validation.status -eq 'passed') 'Zero-exit native error hidden'
+                } elseif ($condition -eq 'nonzero-exit') {
+                    Assert ($result.exitCode -eq 7 -and $result.validation.status -eq 'passed') 'Failed render output was not validated'
+                } elseif ($condition -eq 'invalid-output') {
+                    Assert ($result.render.status -eq 'completed' -and $result.validation.error -match 'empty') 'Output failure misclassified'
+                }
             }
         }
+    }
+
+    Test 'dump collection retains changed reports and continues after a copy failure' {
+        $directory = Join-Path $temporary 'dump-errors'
+        $reports = Join-Path $directory 'reports'
+        New-Item -ItemType Directory -Path $reports -Force | Out-Null
+        $changed = Join-Path $reports 'changed.dmp'
+        'old' | Set-Content -LiteralPath $changed
+        $unchanged = Join-Path $reports 'unchanged.dmp'
+        'old' | Set-Content -LiteralPath $unchanged
+        $seen = @{}
+        foreach ($dump in Get-ChildItem -LiteralPath $reports) { $seen[$dump.FullName] = "$($dump.Length):$($dump.LastWriteTimeUtc.Ticks)" }
+        function Start-Sleep {
+            param($Seconds)
+            'updated dump content' | Set-Content -LiteralPath $changed
+            'locked report' | Set-Content -LiteralPath (Join-Path $reports 'broken.dmp')
+        }
+        function Copy-Item {
+            param($LiteralPath, $Destination, $ErrorAction)
+            if ($LiteralPath.EndsWith('broken.dmp')) { throw 'report locked' }
+            Microsoft.PowerShell.Management\Copy-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop
+        }
+        $result = @{ copiedDumps = @(); dumpCollection = @{ status = 'not_started'; errors = @() } }
+        Copy-NativeDumps ([pscustomobject]@{ dump_directory = $reports }) $directory $seen $result
+        Assert ($result.dumpCollection.status -eq 'partial' -and $result.dumpCollection.errors.Count -eq 1) 'Copy error hidden'
+        Assert ($result.copiedDumps.Count -eq 1 -and $result.copiedDumps[0].source -eq $changed) 'Changed dump lost or old dump copied'
+        Assert ((Get-Content -LiteralPath $result.copiedDumps[0].retained -Raw) -match 'updated dump') 'Retained dump is stale'
     }
 
     Test 'controller targets the worker session and removes only its generated task' {
