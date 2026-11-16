@@ -18,7 +18,7 @@ Paths beginning with `runbooks/` or `incidents/` below are relative to `knowledg
 5. Move any script longer than ~10 lines to `runbooks/scripts/`. Reference it; do not inline it.
 6. Update `runbooks/INDEX.md`.
 7. Run the self-check below.
-8. Show `git diff`. Do NOT commit.
+8. Review `git diff`, then follow the [Diagnose Agent Git finalization](../../../docs/diagnose_agent.md#git-finalization).
 
 ## Where facts go
 

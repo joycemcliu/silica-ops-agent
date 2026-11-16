@@ -57,11 +57,9 @@ Use these hints to select a candidate, then confirm its hostname, operating syst
 ### Logs, metrics, and traces
 
 - Use the MCP servers `grafana_mcp_ops_dev` for dev and `grafana_mcp_ops_prod` for prod. Read-only MCP queries do not require user approval.
-- The human has already configured these servers in Hermes. Reuse the running connections.
-- If a connection fails or tools are unavailable, run `./scripts/grafana-mcp-forward.sh status`. If forwarding is down, run `./scripts/grafana-mcp-forward.sh start`, then `./scripts/grafana-mcp-forward.sh status` to confirm both endpoints are reachable. These recovery operations are authorized by the diagnosis permissions.
-- Refresh the MCP connections and available tools, then retry the read-only query. Hermes provides `/reload-mcp` as a session command, not a shell command. Use the session's refresh control when available; if the worker cannot invoke it, ask the human to run `/reload-mcp` in the affected Hermes session and then retry.
-- If refresh does not restore the tools, report the failure to the human. Do not edit MCP configuration or substitute shell-based HTTP queries as part of this workflow.
-- Leave Grafana forwarding running after diagnosis, including forwarding restored during the session.
+- The Grafana MCP servers are always running. Reuse the configured connections.
+- If a connection fails or tools are unavailable, report the problem and ask the user to fix the connection and refresh the affected agent session: in Codex, restart the session; in Hermes, run `/reload-mcp` as a session command, not a shell command.
+- Do not start, stop, or repair Grafana forwarding, edit MCP configuration, or substitute shell-based HTTP queries as part of this workflow. The user manages connection recovery.
 
 ## Optional skills
 
