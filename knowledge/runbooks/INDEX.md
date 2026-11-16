@@ -8,4 +8,4 @@ slug | symptom keywords | services
 [wcap-short-recordings](docs/wcap-short-recordings.md) | Black selfie sections; one-frame or short in-game recordings; Success despite incomplete capture; WCap initialization timing | video-dge, video-server, unity
 [ae-mfr-footage-mtime](docs/ae-mfr-footage-mtime.md) | AE log timeout; MFR native crashes; inherited footage modification metadata; zero-exit invalid output | video-dge-renderer, after-effects
 
-[missing-video-task-registration](docs/missing-video-task-registration.md) | Missing room video-list entries; completed sessions; empty render-task maps; images without recorded media | video-server, video-dge, unity
+[missing-video-task-registration](docs/missing-video-task-registration.md) | Missing room video-list entries; completed sessions; empty render-task maps; images without recorded media; empty profile loads; missing recording/rendering profiles | video-server, video-dge, unity
