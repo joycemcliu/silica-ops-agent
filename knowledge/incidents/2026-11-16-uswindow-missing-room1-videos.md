@@ -89,3 +89,29 @@ Initial investigation: unresolved historical trigger and recoverability. Restore
 The debrief-requested i-have-adhd skill was not found in available local skill paths; no use of that skill is claimed.
 
 Follow-up tunnel handling: the user started a LAN tunnel after local sudo blocked the agent-owned attempt. Do not close the shared SSH backing forward used by that user tunnel. Close the agent-only API and scoped WinRM forwards at completion; preserve the user LAN connection.
+
+## Requested November 9–13 Room 1 inventory
+
+Read-only evidence extension, using New York session creation dates. Query: GET /session/holodecks/1/sessionBookings?dateFrom=2026-11-09T05:00:00Z&dateTo=2026-11-14T05:00:00Z; each returned session was checked with GET /video/render/task/<session> and GET /video/files/<session>/raw/. Local WinRM checked the corresponding C:\videos\<YYYYMMDD>\<session> recursively for MP4 files and the exact C:\log output file for failed RenderingHelper.Render/RenderRaw profile lookups. Raw results are in /tmp/uswindow-nov9-13-* and are excluded from Git.
+
+E25 (observed): 13 sessions returned, including the newly added November 9 killed Squid Game test. Only the two completed November 10 non-Squid Game sessions have shared MP4 files and persisted render tasks. All 32 tasks on those sessions report completed.
+
+E26 (observed): no MP4s in any inspected local session directory; four killed guest sessions have neither a local session folder nor a matching Unity output log. Missing folders are distinguished below from existing folders without MP4s. Shared raw listings are also 404 for those four sessions.
+
+E27 (observed): six failed local render profile lookups in the November 12 test log and ten each in the two completed November 13 logs. These are failures before submission, not registered render requests. Zero failed lookup matches does not establish zero historical network requests. Exact historical HTTP submission/retry counts remain unverified: Unity's successful sessions do not log RenderingHelper lines, and retained server request logs do not cover the full period. Render task counts below count persisted task records, including child/halfway tasks; they are not HTTP request counts or final video counts. MP4 file counts include any raw webcam debug MP4 files.
+
+| Date/time (New York) | Session ID | Experience | Mode/status | Shared raw MP4s | Local raw MP4s | Render tasks | Failed local profile lookups |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-09 09:58 | uswindow-261109-T1-095856 | squidgame | Test/Killed | 0 | 0 | 0 | 0 |
+| 2026-11-10 12:11 | uswindow-261110-T1-121102 | squidgame | Test/Killed | 0 | 0 | 0 | 0 |
+| 2026-11-10 14:24 | uswindow-261110-G1-142426 | deadwoodorigins | Guest/Killed | 0 (folder absent) | 0 (folder absent) | 0 | not available (log absent) |
+| 2026-11-10 15:01 | uswindow-261110-G1-150144 | deadwoodorigins | Guest/Completed | 54 | 0 | 28 | 0 |
+| 2026-11-10 16:45 | uswindow-261110-G1-164550 | deadwoodphobia | Guest/Completed | 42 | 0 | 4 | 0 |
+| 2026-11-10 18:21 | uswindow-261110-G1-182119 | deadwoodphobia | Guest/Killed | 0 (folder absent) | 0 (folder absent) | 0 | not available (log absent) |
+| 2026-11-11 10:16 | uswindow-261111-T1-101626 | squidgame | Test/Killed | 0 | 0 | 0 | 0 |
+| 2026-11-12 10:14 | uswindow-261112-T1-101455 | squidgame | Test/Killed | 0 | 0 | 0 | 6 |
+| 2026-11-13 09:35 | uswindow-261113-T1-093527 | squidgame | Test/Killed | 0 | 0 | 0 | 0 |
+| 2026-11-13 10:08 | uswindow-261113-G1-100855 | deadwoodorigins | Guest/Killed | 0 (folder absent) | 0 (folder absent) | 0 | not available (log absent) |
+| 2026-11-13 10:13 | uswindow-261113-G1-101333 | strangerthings | Guest/Killed | 0 (folder absent) | 0 (folder absent) | 0 | not available (log absent) |
+| 2026-11-13 14:02 | uswindow-261113-G1-140210 | squidgame | Guest/Completed | 0 | 0 | 0 | 10 |
+| 2026-11-13 14:59 | uswindow-261113-T1-145940 | squidgame | Test/Completed | 0 | 0 | 0 | 10 |
