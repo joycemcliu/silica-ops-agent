@@ -13,7 +13,7 @@ Run one listener for one authorized Slack user and one escalation channel. It re
 - An Ubuntu host with Python 3.11 or newer, `uv`, Git, GitHub CLI (`gh`), `rtk`, and **Codex CLI 0.169.0**. The listener rejects other Codex versions until the protocol is verified and the pin is updated.
 - The repository's shared `.venv/bin/python`, created using the [Python environment guide](setup-python-venv.md). All listener and test commands below use it.
 - A configured root `config.env`. Configure `SILICA_REPO` and `SILICA_ENV_REPO` for this host, using absolute paths or paths relative to this toolkit root. The listener snapshots and resolves these values once; restart after changes. Missing or invalid values stop startup.
-- Existing diagnosis access, including **read-only production credentials**. Do not give this service credentials capable of applying production fixes. The listener removes Slack variables from the Codex child environment; host filesystem permissions must also prevent the service user from reading the root-owned token file.
+- Existing diagnosis access, including **read-only production credentials**. Do not give this service credentials capable of applying production fixes. The listener removes Slack variables from the Codex child environment. The repo-local `service.env` file is owned by your account: mode `600` protects it from other users, but the agent runs as your account and can read it. Git ignore does not isolate credentials from the agent.
 - Git remote push access, a configured Git author, and `gh auth status` passing as the service user. The sibling `../worktree/` directory must be writable by that user. Published branches and PRs remain for human review.
 - A dedicated Codex home outside the repository, with Codex login and read-only Grafana MCP connections. Do not reuse the normal interactive Codex home or its execpolicy rules. Grafana MCP servers are already running; connection recovery belongs to the user.
 
@@ -49,22 +49,38 @@ The listener forces `workspace-write`, `on-request`, user-reviewed approvals, di
 
 The investigation starts in the original toolkit root. The agent is instructed to leave that working tree intact and write documentation only in the post-investigation worktree. That instruction is separate from the sandbox: `workspace-write` technically allows writes in the original root. Repository worktrees share Git metadata; Git and writes to the external documentation worktree can require explicit sandbox approval.
 
-### External environment file and systemd
+### Repo-local environment file and systemd user service
 
-1. As root, create `/etc/slack-debug-agent/` with mode `700`, and copy `slack-debug-agent/deploy/service.env.example` to `/etc/slack-debug-agent/service.env`. Set ownership to `root:root` and mode `600`; replace every placeholder. Do not source or copy this file into the repository or a worktree. systemd reads it before dropping to the service user.
-2. Set `SLACK_DEBUG_CODEX_HOME` to the dedicated absolute path. Set `PATH` to include the actual Codex, Git, `gh`, `rtk`, and diagnosis commands available to the service user. Add `TZ=Asia/Hong_Kong` if the host uses another timezone and worktree dates should follow Hong Kong time.
-3. Copy `slack-debug-agent/deploy/slack-debug-agent.service` to `/etc/systemd/system/`. Edit `User`, `Group`, `WorkingDirectory`, and `ExecStart` for the existing host account and toolkit location. The example assumes account `ops` and toolkit `/opt/silica-ops-agent`; these are deployment placeholders, not runtime defaults.
-4. Start the service:
+1. From the original toolkit root, create the local environment file:
 
    ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now slack-debug-agent
-   sudo systemctl status slack-debug-agent
+   rtk proxy install -m 600 slack-debug-agent/deploy/service.env.example slack-debug-agent/deploy/service.env
    ```
+
+   Replace every placeholder in `slack-debug-agent/deploy/service.env`. This file is ignored by Git; do not force-add it or copy it into documentation worktrees. Re-running the install command overwrites it, so use it only for initial setup.
+2. Set `SLACK_DEBUG_CODEX_HOME` to the dedicated absolute path. Set `PATH` to include the actual Codex, Git, `gh`, `rtk`, and diagnosis commands available to your account. Environment file values do not expand `$HOME` or `%h`; use actual absolute paths. Add `TZ=Asia/Hong_Kong` if the host uses another timezone and worktree dates should follow Hong Kong time.
+3. Install the user service template:
+
+   ```bash
+   rtk proxy install -d "$HOME/.config/systemd/user"
+   rtk proxy cp slack-debug-agent/deploy/slack-debug-agent.service "$HOME/.config/systemd/user/slack-debug-agent.service"
+   ```
+
+   Edit the installed unit's `WorkingDirectory`, `EnvironmentFile`, and both paths in `ExecStart` to match the original toolkit root. The template assumes `%h/silica-ops-agent` as an example; `%h` expands to your home directory in the unit. `EnvironmentFile` must point to that repo's `slack-debug-agent/deploy/service.env`. A user service runs as your account and does not need `User` or `Group` settings.
+4. Start the user service:
+
+   ```bash
+   rtk proxy systemctl --user daemon-reload
+   rtk proxy systemctl --user enable --now slack-debug-agent
+   rtk proxy systemctl --user status slack-debug-agent
+   ```
+
+   Use `systemctl --user restart slack-debug-agent` after configuration changes. To view logs, use `journalctl --user -u slack-debug-agent -n 50 --no-pager`.
+5. To start at boot and keep running after logout, enable lingering for your account with `loginctl enable-linger "$USER"`. This may require administrator authorization under the host's policy. See [loginctl](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html).
 
 `KillMode=control-group` stops Codex processes and descendants on a service restart. State is intentionally in memory; sessions cannot resume after the listener restarts. Codex threads are ephemeral. Git branches and PRs are persistent review artifacts, not listener state.
 
-The Linux listener disables process dumpability before starting Codex, protecting its environment and memory from same-user child inspection through procfs or ptrace. Startup fails if this protection cannot be enabled. Local tests and `--check` can run on macOS; the listener itself requires Linux. See [PR_SET_DUMPABLE](https://man7.org/linux/man-pages/man2/PR_SET_DUMPABLE.2const.html) and [procfs environment access](https://man7.org/linux/man-pages/man5/proc_pid_environ.5.html).
+The Linux listener disables process dumpability before starting Codex, protecting its environment and memory from same-user child inspection through procfs or ptrace. This does not prevent filesystem access to the repo-local token file. Startup fails if process protection cannot be enabled. Local tests and `--check` can run on macOS; the listener itself requires Linux. See [PR_SET_DUMPABLE](https://man7.org/linux/man-pages/man2/PR_SET_DUMPABLE.2const.html) and [procfs environment access](https://man7.org/linux/man-pages/man5/proc_pid_environ.5.html).
 
 ## Verification
 
@@ -96,7 +112,7 @@ Stop the simulation with Ctrl-C. It models reply-to-root resolution, DM report d
 
 Before operational use, test these with the actual configured user and Ubuntu Codex version:
 
-1. In a service environment with the external variables loaded securely, run `.venv/bin/python slack-debug-agent/main.py --check`. This checks local paths, token prefixes, the dedicated profile, and the pinned Codex version without connecting to Slack. A missing service environment is a startup error, not a fallback to interactive credentials.
+1. In a service environment with variables from `slack-debug-agent/deploy/service.env` loaded securely, run `.venv/bin/python slack-debug-agent/main.py --check`. This checks local paths, token prefixes, the dedicated profile, and the pinned Codex version without connecting to Slack. The listener reads environment variables supplied by systemd; it does not automatically source `service.env`. A missing service environment is a startup error, not a fallback to interactive credentials.
 2. Send `help debugging on <issue-permalink>` in a bot DM. Try both a top-level message and a reply permalink, including a reply link without a `thread_ts` query. Confirm that the whole parent thread is read. If Slack rejects a reply-only timestamp, use its full link with `thread_ts`; the listener reports the error rather than silently investigating incomplete evidence.
 3. Ask for a harmless command requiring sandbox escalation. Confirm Codex emits the approval request instead of stalling, the DM shows the complete command, working directory, and reason, and execution waits for **Approve**. Check **Deny**, a ten-minute expiry, and rejection of other users' actions. The known escalation-delivery issue is not established as fixed by the generated schema or mock tests.
 4. Confirm a harmless network command is blocked inside the sandbox and routed to approval when escalated. An approval is one request only; no allowlist or session-wide grant is saved. File approvals require a complete diff; root-wide grants and unsupported permission requests fail closed.
@@ -120,7 +136,7 @@ There is no concurrency cap. Each session gets its own Codex process and runs at
 
 ## Troubleshooting
 
-- **Startup fails:** correct `config.env` or the external service environment as indicated, then restart. Check the service user's `PATH`, Codex version, and dedicated home. Do not log tokens or enable verbose SDK logging.
+- **Startup fails:** correct `config.env` or `slack-debug-agent/deploy/service.env` as indicated, then restart the user service. Check the unit's absolute paths, your account's `PATH`, Codex version, and dedicated home. Do not log tokens or enable verbose SDK logging.
 - **Issue read fails:** check the user token's scopes and channel access. Slack rate limits and permission errors produce a private failure report; they do not trigger writes or joins in the escalation channel.
 - **No approval appears:** stop the affected session, inspect the host's Codex version and protocol, and complete the escalation acceptance check before retrying. The two-hour deadline is a backstop, not proof that escalation delivery works.
 - **Git or PR step fails:** preserve the worktree and branch for recovery, as the shared workflow requires. Restore Git/`gh` access as the service user and start a new request if the old session has ended.
@@ -129,6 +145,6 @@ There is no concurrency cap. Each session gets its own Codex process and runs at
 
 ## Cleanup
 
-Stop and disable the service before removing its unit or external token file. Remove only diagnosis worktrees you have reviewed and no longer need, using `git worktree remove`; retain failed worktrees until their contents are recovered. Published branches and PRs require separate human review or closure. Preserve shared Grafana forwarding and tunnels not owned by this service.
+Run `systemctl --user disable --now slack-debug-agent` before removing the installed user unit or repo-local `service.env`. After removing the unit from `~/.config/systemd/user/`, run `systemctl --user daemon-reload`. Remove only diagnosis worktrees you have reviewed and no longer need, using `git worktree remove`; retain failed worktrees until their contents are recovered. Published branches and PRs require separate human review or closure. Preserve shared Grafana forwarding and tunnels not owned by this service.
 
 Protocol references: [Codex app-server](https://developers.openai.com/codex/app-server), [Slack Socket Mode for Python](https://docs.slack.dev/tools/bolt-python/concepts/socket-mode/), [conversations.replies](https://docs.slack.dev/reference/methods/conversations.replies/), [chat.postMessage](https://docs.slack.dev/reference/methods/chat.postMessage/), and [chat.update](https://docs.slack.dev/reference/methods/chat.update/).

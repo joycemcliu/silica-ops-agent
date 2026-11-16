@@ -27,7 +27,7 @@ Progress messages appear only at start, at approvals and at finish.
 - **Listener:** a single Python process using Bolt in Socket Mode, so it only needs outbound internet. It needs no public URL or open port.
 - **Runtime:** one `codex app-server` process per session, spawned in the original toolkit repo. Documentation changes use a separate worktree after investigation.
 - **State:** in memory only (no database, no persistence).
-- **Host:** the office Ubuntu PC, which already has the debugging environment. Run the listener as a systemd service, with the tokens in a root-readable env file outside the repo.
+- **Host:** the office Ubuntu PC, which already has the debugging environment. Run the listener as a systemd user service, with tokens in `slack-debug-agent/deploy/service.env` in the original repo (mode `600`, ignored by Git). This file remains readable by the agent running as the same user; Git ignore prevents accidental staging, not filesystem access.
 
 ## Slack app configuration
 

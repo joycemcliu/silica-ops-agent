@@ -48,7 +48,7 @@ class Config:
         def required(key):
             value = os.environ.get(key, "").strip()
             if not value:
-                raise ValueError(f"Set {key} in the external service environment file.")
+                raise ValueError(f"Set {key} in slack-debug-agent/deploy/service.env.")
             return value
 
         user, channel = required("SLACK_DEBUG_USER_ID"), required("SLACK_DEBUG_CHANNEL_ID")

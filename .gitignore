@@ -20,3 +20,4 @@ __pycache__/
 .pytest-tmp/
 /config.env
 /.venv/
+/slack-debug-agent/deploy/service.env
