@@ -8,9 +8,10 @@ import signal
 
 
 class Codex:
-    def __init__(self, config, on_request):
+    def __init__(self, config, on_request, on_notification=None):
         self.config = config
         self.on_request = on_request
+        self.on_notification = on_notification
         self.process = None
         self.pending = {}
         self.requests = set()
@@ -20,7 +21,7 @@ class Codex:
         self.stderr = None
         self.items = {}
 
-    async def start(self, instructions):
+    async def start(self, instructions, resume_thread=None):
         self.process = await asyncio.create_subprocess_exec(
             self.config.codex_bin,
             "app-server",
@@ -40,6 +41,8 @@ class Codex:
             "-c",
             "sandbox_workspace_write.network_access=false",
             "-c",
+            "sandbox_workspace_write.writable_roots=[]",
+            "-c",
             "sandbox_workspace_write.exclude_tmpdir_env_var=true",
             "-c",
             "sandbox_workspace_write.exclude_slash_tmp=true",
@@ -57,18 +60,44 @@ class Codex:
             "initialize", {"clientInfo": {"name": "silica_slack_debug", "version": "0.1.0"}}
         )
         await self.send({"method": "initialized", "params": {}})
-        result = await self.call(
-            "thread/start",
-            {
-                "cwd": str(self.config.root),
-                "approvalPolicy": "on-request",
-                "approvalsReviewer": "user",
-                "sandbox": "workspace-write",
-                "ephemeral": True,
-                "developerInstructions": instructions,
+        # App-server 0.169.0 rejects the native --profile flag. Apply the parsed
+        # profile through thread/start config, which overlays the base home config.
+        overrides = {
+            **self.config.profile_config,
+            "approval_policy": "on-request",
+            "approvals_reviewer": "user",
+            "sandbox_mode": "workspace-write",
+            "sandbox_workspace_write": {
+                **self.config.profile_config.get("sandbox_workspace_write", {}),
+                "network_access": False,
+                "writable_roots": [],
+                "exclude_tmpdir_env_var": True,
+                "exclude_slash_tmp": True,
             },
-        )
+            "features": {
+                **self.config.profile_config.get("features", {}),
+                "hooks": False,
+                "multi_agent": False,
+                "multi_agent_v2": False,
+            },
+        }
+        params = {
+            "cwd": str(self.config.root),
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandbox": "workspace-write",
+            "developerInstructions": instructions,
+            "config": overrides,
+        }
+        if resume_thread:
+            params["threadId"] = resume_thread
+            params["excludeTurns"] = True
+        else:
+            params["ephemeral"] = False
+        result = await self.call("thread/resume" if resume_thread else "thread/start", params)
         self.thread_id = result["thread"]["id"]
+        if resume_thread and self.thread_id != resume_thread:
+            raise RuntimeError("Codex resumed an unexpected thread")
         self.session_id = result["thread"].get("sessionId") or self.thread_id
         return self.thread_id
 
@@ -127,6 +156,8 @@ class Codex:
                         self.requests.add(task)
                         task.add_done_callback(self.requests.discard)
                     else:
+                        if self.on_notification:
+                            await self.on_notification(message["method"], message.get("params", {}))
                         # Command output and reasoning can be large; neither is posted to Slack.
                         if message["method"] in (
                             "item/started",

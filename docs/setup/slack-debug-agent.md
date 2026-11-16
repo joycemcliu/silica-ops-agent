@@ -1,7 +1,7 @@
 ---
 title: "Set up the Slack debug agent"
-description: "Run a private Socket Mode diagnosis listener with Codex approvals on the Ubuntu office PC."
-tags: [slack, codex, diagnosis, ubuntu, systemd, approvals]
+description: "Test the private diagnosis listener on macOS or deploy it on the Ubuntu office PC."
+tags: [slack, codex, diagnosis, macos, ubuntu, systemd, approvals]
 ---
 
 # Set up the Slack debug agent
@@ -10,12 +10,12 @@ Run one listener for one authorized Slack user and one escalation channel. It re
 
 ## Prerequisites
 
-- An Ubuntu host with Python 3.11 or newer, `uv`, Git, GitHub CLI (`gh`), `rtk`, and **Codex CLI 0.169.0**. The listener rejects other Codex versions until the protocol is verified and the pin is updated.
+- A macOS or Ubuntu host with Python 3.11 or newer, `uv`, Git, GitHub CLI (`gh`), `rtk`, and **Codex CLI 0.169.0**. The listener rejects other Codex versions until the protocol is verified and the pin is updated. systemd deployment is Ubuntu-only.
 - The repository's shared `.venv/bin/python`, created using the [Python environment guide](setup-python-venv.md). All listener and test commands below use it.
 - A configured root `config.env`. Configure `SILICA_REPO` and `SILICA_ENV_REPO` for this host, using absolute paths or paths relative to this toolkit root. The listener snapshots and resolves these values once; restart after changes. Missing or invalid values stop startup.
 - Existing diagnosis access, including **read-only production credentials**. Do not give this service credentials capable of applying production fixes. The listener removes Slack variables from the Codex child environment. The repo-local `service.env` file is owned by your account: mode `600` protects it from other users, but the agent runs as your account and can read it. Git ignore does not isolate credentials from the agent.
 - Git remote push access, a configured Git author, and `gh auth status` passing as the service user. The sibling `../worktree/` directory must be writable by that user. Published branches and PRs remain for human review.
-- A dedicated Codex home outside the repository, with Codex login and read-only Grafana MCP connections. Do not reuse the normal interactive Codex home or its execpolicy rules. Grafana MCP servers are already running; connection recovery belongs to the user.
+- For deployment, a dedicated Codex home outside the repository, with Codex login and read-only Grafana MCP connections. For explicit local `--profile` testing, the normal `~/.codex` home is supported and its existing execpolicy rules are inherited. Grafana MCP servers are already running; connection recovery belongs to the user.
 
 ## Setup
 
@@ -35,7 +35,7 @@ uv pip install --python .venv/bin/python -r slack-debug-agent/requirements.txt
 codex --version
 ```
 
-As the eventual service user, create a dedicated Codex home, copy `slack-debug-agent/deploy/codex.config.toml` into its `config.toml`, and authenticate with `CODEX_HOME` pointing to that directory:
+For deployment, as the eventual service user, create a dedicated Codex home, copy `slack-debug-agent/deploy/codex.config.toml` into its `config.toml`, and authenticate with `CODEX_HOME` pointing to that directory. For local testing with your existing profile, skip this dedicated-home setup and use the macOS section below.
 
 ```bash
 install -d -m 700 "$HOME/.local/share/slack-debug-codex"
@@ -45,7 +45,7 @@ CODEX_HOME="$HOME/.local/share/slack-debug-codex" codex login
 
 Configure `grafana_mcp_ops_dev` and `grafana_mcp_ops_prod` in that dedicated config. Use the endpoint URLs supplied by the existing environment owner. Do not start another forwarding supervisor. See [Grafana connection preparation](grafana-mcp-forward.md) for the existing host configuration.
 
-The listener forces `workspace-write`, `on-request`, user-reviewed approvals, disabled sandbox networking, and no writable temporary directories outside the workspace. It disables hooks and agent delegation for these sessions so the existing force-checkout startup hook cannot run. Existing execpolicy rule files in the dedicated home or toolkit `.codex/rules/` cause startup to fail. Keep parent-directory project configuration and installed plugins free of approval rules or automatic hooks for this service.
+The listener forces `workspace-write`, `on-request`, user-reviewed approvals, disabled sandbox networking, and no additional writable roots or writable temporary directories outside the workspace. It disables hooks and agent delegation for these sessions so the existing force-checkout startup hook cannot run. Without `--profile`, existing execpolicy rule files in the dedicated home or toolkit `.codex/rules/` cause startup to fail. Explicit `--profile` testing inherits the chosen home's existing command rules, so matching commands may run without a new Slack prompt. Keep deployment configuration free of approval rules or automatic hooks.
 
 The investigation starts in the original toolkit root. The agent is instructed to leave that working tree intact and write documentation only in the post-investigation worktree. That instruction is separate from the sandbox: `workspace-write` technically allows writes in the original root. Repository worktrees share Git metadata; Git and writes to the external documentation worktree can require explicit sandbox approval.
 
@@ -59,6 +59,8 @@ The investigation starts in the original toolkit root. The agent is instructed t
 
    Replace every placeholder in `slack-debug-agent/deploy/service.env`. This file is ignored by Git; do not force-add it or copy it into documentation worktrees. Re-running the install command overwrites it, so use it only for initial setup.
 2. Set `SLACK_DEBUG_CODEX_HOME` to the dedicated absolute path. Set `PATH` to include the actual Codex, Git, `gh`, `rtk`, and diagnosis commands available to your account. Environment file values do not expand `$HOME` or `%h`; use actual absolute paths. Add `TZ=Asia/Hong_Kong` if the host uses another timezone and worktree dates should follow Hong Kong time.
+For foreground testing, complete steps 1–2, then follow the next section. For managed deployment, continue with steps 3–5:
+
 3. Install the user service template:
 
    ```bash
@@ -78,9 +80,85 @@ The investigation starts in the original toolkit root. The agent is instructed t
    Use `systemctl --user restart slack-debug-agent` after configuration changes. To view logs, use `journalctl --user -u slack-debug-agent -n 50 --no-pager`.
 5. To start at boot and keep running after logout, enable lingering for your account with `loginctl enable-linger "$USER"`. This may require administrator authorization under the host's policy. See [loginctl](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html).
 
-`KillMode=control-group` stops Codex processes and descendants on a service restart. State is intentionally in memory; sessions cannot resume after the listener restarts. Codex threads are ephemeral. Git branches and PRs are persistent review artifacts, not listener state.
+`KillMode=control-group` stops Codex processes and descendants on a service restart. New Codex threads persist in the configured Codex home. The listener keeps their Slack DM mappings in `./slack-debug-agent/state/sessions.sqlite3`. Reply in the original DM thread after restarting to resume saved context. Running commands, pending approvals, questions, and queued replies are interrupted rather than automatically replayed; old buttons cannot authorize a new process. Git branches, documentation worktrees, and PRs also remain available for recovery.
 
-The Linux listener disables process dumpability before starting Codex, protecting its environment and memory from same-user child inspection through procfs or ptrace. This does not prevent filesystem access to the repo-local token file. Startup fails if process protection cannot be enabled. Local tests and `--check` can run on macOS; the listener itself requires Linux. See [PR_SET_DUMPABLE](https://man7.org/linux/man-pages/man2/PR_SET_DUMPABLE.2const.html) and [procfs environment access](https://man7.org/linux/man-pages/man5/proc_pid_environ.5.html).
+On Linux, the listener disables process dumpability before starting Codex, protecting its environment and memory from same-user child inspection through procfs or ptrace. On macOS it disables core dumps; it does not apply Linux's process-inspection protection. Neither prevents filesystem access to the repo-local token file. See [PR_SET_DUMPABLE](https://man7.org/linux/man-pages/man2/PR_SET_DUMPABLE.2const.html) and [procfs environment access](https://man7.org/linux/man-pages/man5/proc_pid_environ.5.html).
+
+### macOS testing with an existing Codex profile
+
+Use the repository's existing `.venv/bin/python`. From the toolkit root, install the listener dependencies if needed:
+
+```bash
+rtk proxy uv pip install --python .venv/bin/python -r slack-debug-agent/requirements.txt
+```
+
+Create and fill in `slack-debug-agent/deploy/service.env` from the template if it does not already exist. Keep the Slack tokens, user/channel IDs, and workspace hostname configured there. Set the Codex home and your macOS tool search path, for example on this Apple Silicon host:
+
+```dotenv
+SLACK_DEBUG_CODEX_HOME=~/.codex
+PATH=/opt/homebrew/bin:/Users/7am/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+```
+
+The listener explicitly expands `~` in the Codex home setting. For another account or Homebrew installation, adjust `PATH` to the actual directories containing your tools. Do not leave the Ubuntu `/home/ops/...` example path in the local environment file.
+
+The profile filename is `~/.codex/diagnose.config.toml` (`.toml`, not `.tmol`). The selected home must also contain its base `config.toml` and your existing Codex login. Run:
+
+```bash
+rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --profile diagnose --check
+rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --profile diagnose
+```
+
+Leave the second command running and DM the bot `help debugging on <issue-permalink>`. Press Ctrl-C to stop it. No systemd service is needed for this test. Do not run a second listener for the same app at the same time.
+
+`--profile diagnose` is a listener option. Codex 0.169.0 does not accept its native `--profile` flag with `app-server`, so the listener reads `<CODEX_HOME>/diagnose.config.toml` once and overlays it through the app-server's thread-start configuration. The existing home supplies base configuration, authentication, and command rules. Use absolute paths for file references in an imported profile, since thread-start overrides do not preserve native profile-file path metadata. The listener does not edit your profile. Its forced sandbox, network, approval, hook, and delegation settings take precedence over profile values. The agent receives the profile's MCP server names so it can use the matching available dev/prod Grafana connections.
+
+Profile reference: [Codex configuration profiles](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles). The adapter's profile overlay and effective sandbox are checked against a real local app-server without starting a model turn.
+
+### Foreground testing with Python
+
+On macOS or Ubuntu, from the original toolkit root, validate configuration without connecting to Slack. For the existing-profile setup above, also pass `--profile diagnose`:
+
+```bash
+rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --check
+```
+
+Then start the listener in the foreground:
+
+```bash
+rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env
+```
+
+`--env-file` reads the file once before configuration validation, overrides matching inherited variables, and does not expand variable references or execute shell commands. Relative file paths resolve from the toolkit root. A missing or empty file stops startup. Without this option, the listener uses the environment supplied by systemd or its parent process.
+
+Keep the terminal open and DM the bot `help debugging on <issue-permalink>`. Confirm the acknowledgement, compact activity updates, approval buttons, report, and same-thread follow-up. Activity should use a new message after each approval or answer. Set `SLACK_DEBUG_ACTIVITY=off` and restart to verify that activity disappears. Press Ctrl-C to stop the listener and its Codex sessions. After restarting, reply in the same DM thread to resume saved context; pending approvals, questions, and queued replies are not restored. A quiet terminal while the listener waits for messages is normal; it does not log issue content or tokens. Do not run a foreground listener and the systemd service simultaneously.
+
+### Persistent conversations
+
+Persistence is enabled for new sessions automatically. Keep `SLACK_DEBUG_CODEX_HOME` stable: Codex stores the conversation history there, and the listener stores thread mappings and event IDs in `./slack-debug-agent/state/sessions.sqlite3`. The database path resolves from the toolkit root, independently of the listener’s working directory. The database is created with mode `600` inside a directory created with mode `700`; the entire state directory is ignored by Git. If the local database does not exist, startup imports an existing `<CODEX_HOME>/slack-debug/sessions.sqlite3` using SQLite backup and keeps the old file intact. An existing local database is never overwritten by that import. Stop any older listener before upgrading. It does not store Slack tokens, issue bodies, or reply text. Native Codex history can contain investigation data and command output; protect and back up both the local state directory and the Codex home. No new packages or Slack permissions are required for persistence.
+
+After a listener restart, send `continue` or your next question in the original DM thread. Resumption is on demand; the listener does not automatically replay operations. Pending approvals, questions, and queued replies must be reissued. Saved mappings are scoped to workspace, authorized user, escalation channel, toolkit and repository paths, Codex home, and profile name, so changing those settings may make earlier mappings unavailable. If native history is missing, resumption reports failure and retains the mapping; it does not silently start a new conversation. Sessions created before this feature used ephemeral history and cannot be recovered by this update.
+
+### MCP input requests
+
+The listener handles `mcpServer/elicitation/request` for `form`, `openai/form`, `openaiForm`, and `url` modes. Form requests show the server name, message, and JSON schema in the originating DM thread. Reply with a matching JSON object (`{}` for an empty form), or `decline` or `cancel`. Invalid replies are rejected and can be retried. URL requests display an HTTPS URL for you to open manually; complete the browser interaction and reply `accept`, or decline/cancel. Never put credentials in DM replies.
+
+Only the configured user can answer. Requests are serialized per session so each reply answers one question. An unanswered request cancels after ten minutes, allowing Codex to continue. Invalid, unsupported, referenced, oversized, and explicitly secret-input schemas are declined with an explanation instead of an unsupported-request session failure.
+
+After updating, rerun `uv pip install --python .venv/bin/python -r slack-debug-agent/requirements.txt` to install the new JSON Schema validator, then restart the listener. No additional Slack permissions are needed.
+
+### Approval display
+
+Short approvals show `Approve? [short-id]`, the command after `$` in a native Slack code block, with its working directory and `why:` outside the block and buttons directly below. Multiline scripts retain indentation, line breaks, and literal backticks. Plain shell `-c`/`-lc` wrappers and redundant protocol metadata are omitted; unknown request fields and file-change details remain visible. Directories inside the toolkit are shown relative to its root; external directories stay absolute. Commands are split into code blocks of at most 2,800 characters without truncation. Up to ten detail blocks share one message; larger requests span messages, with buttons only after all details have been delivered. Full request IDs are retained in button values, and the command and reason remain after approval or denial. Raw approval payloads are not logged because commands and diffs can contain secrets.
+
+### Findings delivery
+
+Final answers arrive as one formatted message with readable section breaks. The agent is instructed to keep the DM report under 6,000 characters and put extended findings in the diagnosis PR. The listener repairs JSON-encoded report strings and escaped prose newlines, renders headings, bold text, and links for Slack, and preserves code escapes. Reports exceeding 12,000 rendered characters receive a visible shortening notice with retained reference links; ask a follow-up for omitted details. Approval commands remain complete literal text rendered in native Slack code blocks. Restart the listener after updating the code.
+
+### Activity feed
+
+Each visible activity line has its own Slack section on both the initial post and subsequent updates, so commands remain visually separated. The message displays up to 20 sections, with an omission notice when older lines are dropped.
+
+Set `SLACK_DEBUG_ACTIVITY=summary` (default) or `off` in the listener environment and restart it. Summary mode edits a bounded activity message in the originating DM thread about every two seconds, grouping completed reads, searches, and file listings as `Explored`, and showing other commands, changed paths, MCP tool names, and any commentary. It flushes and starts a fresh activity message around approvals, questions, final answers, and failures. Commands may contain sensitive arguments; activity excludes command output, diffs, tool results, and reasoning. Slack update failures are best effort and do not fail the diagnosis. Activity does not add Slack permissions.
 
 ## Verification
 
@@ -112,13 +190,13 @@ Stop the simulation with Ctrl-C. It models reply-to-root resolution, DM report d
 
 Before operational use, test these with the actual configured user and Ubuntu Codex version:
 
-1. In a service environment with variables from `slack-debug-agent/deploy/service.env` loaded securely, run `.venv/bin/python slack-debug-agent/main.py --check`. This checks local paths, token prefixes, the dedicated profile, and the pinned Codex version without connecting to Slack. The listener reads environment variables supplied by systemd; it does not automatically source `service.env`. A missing service environment is a startup error, not a fallback to interactive credentials.
+1. Run `.venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --check`. This checks local paths, token prefixes, the dedicated profile, and the pinned Codex version without connecting to Slack. The listener loads the file only when `--env-file` is supplied; systemd uses the unit's `EnvironmentFile` setting instead. A missing service environment is a startup error, not a fallback to interactive credentials.
 2. Send `help debugging on <issue-permalink>` in a bot DM. Try both a top-level message and a reply permalink, including a reply link without a `thread_ts` query. Confirm that the whole parent thread is read. If Slack rejects a reply-only timestamp, use its full link with `thread_ts`; the listener reports the error rather than silently investigating incomplete evidence.
 3. Ask for a harmless command requiring sandbox escalation. Confirm Codex emits the approval request instead of stalling, the DM shows the complete command, working directory, and reason, and execution waits for **Approve**. Check **Deny**, a ten-minute expiry, and rejection of other users' actions. The known escalation-delivery issue is not established as fixed by the generated schema or mock tests.
 4. Confirm a harmless network command is blocked inside the sandbox and routed to approval when escalated. An approval is one request only; no allowlist or session-wide grant is saved. File approvals require a complete diff; root-wide grants and unsupported permission requests fail closed.
 5. Complete a diagnosis and confirm `../worktree/<YYMMDD>-<actual-agent-session-or-thread-id>/`, a pushed documentation branch, an open PR, and removal of the clean worktree. Confirm no production remediation ran. The Git workflow is executed by Codex following the shared instructions; the listener does not independently validate the PR or execute Git on the agent's behalf.
 6. Send a follow-up in the same DM thread. Confirm it uses the same Codex session and can update the same PR after recreating the documentation worktree.
-7. Restart the listener and reply in the old thread. Expect `session not found, start a new one`. Check that the original toolkit working tree and other sessions' shared forwards are intact.
+7. Create a new session with this persistence-capable listener, let it run a turn, restart, and reply in the same DM thread. Expect a resuming acknowledgement and continued context. Confirm that old approval buttons do nothing, new approvals are required, and interrupted operations are verified before retrying. Confirm duplicate Slack events do not start duplicate work. Threads created by older ephemeral versions remain unavailable. Check that the original toolkit working tree and other sessions' shared forwards are intact.
 
 No live Slack, production diagnosis, remote push/PR, or Ubuntu systemd acceptance check was performed during local implementation.
 
@@ -132,7 +210,7 @@ help debugging on https://your-workspace.slack.com/archives/CHANNEL_ID/pMESSAGE_
 
 Use replies in that DM thread for follow-up information and **Approve**/**Deny** for sandbox decisions. Ordinary messages never approve commands. The final report includes symptom, suspected cause, evidence, added or updated repository-relative file paths, and a PR URL.
 
-There is no concurrency cap. Each session gets its own Codex process and runs at most two hours from creation, including follow-up and idle time. A session that exceeds the limit reports `failed: timed out after 2h`. Failed sessions are closed; start a new request to retry. The user-token client only reads threads; the bot client only writes to DM IDs. File contents and arbitrary attachment URLs are not downloaded.
+There is no concurrency cap. Each active session gets its own Codex process and runs at most two hours from attachment, including follow-up and idle time. An explicit reply after a restart, failure, or timeout resumes the saved Codex conversation in a new process with a new two-hour window. A session that exceeds the limit reports `failed: timed out after 2h`. Failed processes are closed; reply in the same thread to resume saved context, or send a new top-level request for a separate conversation. The user-token client only reads threads; the bot client only writes to DM IDs. File contents and arbitrary attachment URLs are not downloaded.
 
 ## Troubleshooting
 
@@ -141,7 +219,7 @@ There is no concurrency cap. Each session gets its own Codex process and runs at
 - **No approval appears:** stop the affected session, inspect the host's Codex version and protocol, and complete the escalation acceptance check before retrying. The two-hour deadline is a backstop, not proof that escalation delivery works.
 - **Git or PR step fails:** preserve the worktree and branch for recovery, as the shared workflow requires. Restore Git/`gh` access as the service user and start a new request if the old session has ended.
 - **Grafana MCP is unavailable:** the user fixes the connection and restarts the Codex session; use a new DM request for a fresh listener-managed session. In an ordinary Hermes session, use `/reload-mcp` instead.
-- **Host load is high:** the v1 listener has unbounded concurrency. Stop the service to terminate its sessions if necessary; pending approvals and in-memory state are lost.
+- **Host load is high:** the v1 listener has unbounded concurrency. Stop the service to terminate its sessions if necessary; pending approvals, questions, and queued replies are lost; saved conversations can be resumed later.
 
 ## Cleanup
 

@@ -2,10 +2,12 @@ import argparse
 import asyncio
 import ctypes
 import logging
+import resource
 import signal
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 from slack_sdk.web.async_client import AsyncWebClient
@@ -15,10 +17,11 @@ from .config import Config
 
 
 def protect_listener():
+    if sys.platform == "darwin":
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        return
     if sys.platform != "linux":
-        raise ValueError(
-            "The listener runtime requires Linux; local tests and --check are supported here."
-        )
+        raise ValueError("The listener runtime supports Linux and macOS.")
     # Keep same-UID Codex children from reading Slack tokens via /proc or ptrace.
     # https://man7.org/linux/man-pages/man2/PR_SET_DUMPABLE.2const.html
     prctl = ctypes.CDLL(None, use_errno=True).prctl
@@ -60,18 +63,34 @@ async def run(config):
         await stop.wait()
     finally:
         await manager.close()
+        manager.store.close()
         await handler.close_async()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Private Slack diagnosis listener")
     parser.add_argument(
+        "--env-file",
+        type=Path,
+        help="Load service environment variables from a file (relative to the toolkit root)",
+    )
+    parser.add_argument(
+        "--profile", help="Reuse CODEX_HOME/<name>.config.toml and that home's login and rules"
+    )
+    parser.add_argument(
         "--check", action="store_true", help="Validate local config without connecting to Slack"
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
     try:
-        config = Config.load(Path(__file__).resolve().parents[2])
+        root = Path(__file__).resolve().parents[2]
+        if args.env_file is not None:
+            env_file = (root / args.env_file).resolve()
+            if not env_file.is_file():
+                raise ValueError(f"Environment file not found: {env_file}")
+            if not load_dotenv(env_file, override=True, interpolate=False):
+                raise ValueError("Environment file is empty or dotenv loading is disabled.")
+        config = Config.load(root, profile=args.profile)
         if args.check:
             print("Local configuration valid; Slack access and live approvals remain unverified.")
         else:

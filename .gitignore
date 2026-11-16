@@ -21,3 +21,4 @@ __pycache__/
 /config.env
 /.venv/
 /slack-debug-agent/deploy/service.env
+/slack-debug-agent/state/

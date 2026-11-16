@@ -28,6 +28,7 @@ def config(root=ROOT):
         "xoxb-test",
         "xoxp-test",
         "xapp-test",
+        session_db=":memory:",
     )
 
 
@@ -65,14 +66,17 @@ class Slack:
 class FakeCodex:
     instances = []
 
-    def __init__(self, config, handler):
+    def __init__(self, config, handler, on_notification=None):
         self.config, self.handler = config, handler
+        self.on_notification = on_notification
         self.closed, self.texts, self.items = False, [], {}
         self.session_id = "actual-thread-id"
+        self.thread_id = self.session_id
         self.instances.append(self)
 
-    async def start(self, instructions):
+    async def start(self, instructions, resume_thread=None):
         self.instructions = instructions
+        self.resumed_thread = resume_thread
         return self.session_id
 
     async def turn(self, text):
@@ -103,7 +107,15 @@ class ConfigTests(unittest.TestCase):
                 protect_listener()
         with (
             patch("slack_debug.__main__.sys.platform", "darwin"),
-            self.assertRaisesRegex(ValueError, "requires Linux"),
+            patch("slack_debug.__main__.resource.setrlimit") as limit,
+            patch("slack_debug.__main__.ctypes.CDLL") as libc,
+        ):
+            protect_listener()
+            libc.assert_not_called()
+            limit.assert_called_once()
+        with (
+            patch("slack_debug.__main__.sys.platform", "win32"),
+            self.assertRaisesRegex(ValueError, "supports Linux and macOS"),
         ):
             protect_listener()
 
@@ -153,6 +165,12 @@ class ConfigTests(unittest.TestCase):
             ):
                 run.return_value.stdout = "codex-cli 0.169.0\n"
                 loaded = Config.load(toolkit)
+                self.assertEqual(loaded.activity_mode, "summary")
+                with patch.dict(os.environ, {"SLACK_DEBUG_ACTIVITY": "off"}):
+                    self.assertEqual(Config.load(toolkit).activity_mode, "off")
+                with patch.dict(os.environ, {"SLACK_DEBUG_ACTIVITY": "invalid"}):
+                    with self.assertRaisesRegex(ValueError, "SLACK_DEBUG_ACTIVITY"):
+                        Config.load(toolkit)
                 (toolkit / "config.env").write_text("SILICA_REPO=changed\n")
                 self.assertEqual(loaded.silica_repo, (root / "silica").resolve())
                 self.assertFalse(any(k.startswith("SLACK_") for k in loaded.child_environment()))
@@ -163,6 +181,26 @@ class ConfigTests(unittest.TestCase):
                 (home / "rules/allow.rules").touch()
                 with self.assertRaisesRegex(ValueError, "Remove execpolicy"):
                     Config.load(toolkit)
+                profile_file = home / "diagnose.config.toml"
+                profile_file.write_text('model="profile-model"\n[features]\nhooks=true\n')
+                loaded_profile = Config.load(toolkit, profile="diagnose")
+                self.assertEqual(loaded_profile.profile_name, "diagnose")
+                self.assertEqual(loaded_profile.profile_config["model"], "profile-model")
+                profile_file.write_text('model="changed"\n')
+                self.assertEqual(loaded_profile.profile_config["model"], "profile-model")
+                with self.assertRaisesRegex(ValueError, "profile not found"):
+                    Config.load(toolkit, profile="missing")
+                with self.assertRaisesRegex(ValueError, "Profile names"):
+                    Config.load(toolkit, profile="../invalid")
+                # Explicit profile selection permits the existing interactive home.
+                with (
+                    patch("slack_debug.config.Path.home", return_value=home.parent),
+                    patch.dict(os.environ, {"SLACK_DEBUG_CODEX_HOME": str(home.parent / ".codex")}),
+                ):
+                    (home.parent / ".codex").symlink_to(home, target_is_directory=True)
+                    self.assertEqual(
+                        Config.load(toolkit, profile="diagnose").codex_home, home.resolve()
+                    )
 
 
 class AgentTests(unittest.IsolatedAsyncioTestCase):
@@ -206,7 +244,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         await self.manager.close()
         self.assertTrue(client.closed)
         await self.manager.message(event("after restart", thread_ts=event()["ts"], ts="3"), "lost")
-        self.assertEqual(self.bot.posts[-1]["text"], "session not found, start a new one")
+        await until(lambda: len(FakeCodex.instances) == 2 and len(self.bot.posts) == 5)
+        self.assertEqual(FakeCodex.instances[-1].resumed_thread, client.thread_id)
+        self.assertIn("after restart", FakeCodex.instances[-1].texts[-1])
 
     async def test_concurrent_sessions_keep_followups_separate(self):
         self.user.pages *= 2
@@ -278,11 +318,13 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         body["channel"]["id"] = "D123"
         await self.manager.action(body)
         self.assertEqual(await task, "accept")
-        rendered = "".join(p["blocks"][0]["text"]["text"] for p in self.bot.posts[:-1])
-        self.assertIn(command, rendered)
-        self.assertTrue(all(len(p["text"]) <= 2800 for p in self.bot.posts[:-1]))
+        rendered = "".join(b["elements"][0]["elements"][0]["text"]
+                           for p in self.bot.posts for b in p["blocks"]
+                           if b["type"] == "rich_text")
+        self.assertEqual(rendered, "$ " + command)
+        self.assertTrue(all(len(p["text"]) < 30000 for p in self.bot.posts))
         self.assertFalse(self.manager.approvals)
-        self.assertEqual(self.bot.updates[-1]["blocks"], [])
+        self.assertFalse(any(b["type"] == "actions" for b in self.bot.updates[-1]["blocks"]))
         await self.manager.action(body)  # A replay cannot approve another command.
 
     async def test_approval_timeout_denies(self):
@@ -382,6 +424,12 @@ for line in sys.stdin:
         result = {}
     elif method == "thread/start":
         assert m["params"]["approvalPolicy"] == "on-request"
+        cfg = m["params"]["config"]
+        assert cfg["model"] == "profile-model"
+        assert cfg["sandbox_mode"] == "workspace-write"
+        assert cfg["features"]["hooks"] is False
+        assert cfg["sandbox_workspace_write"]["network_access"] is False
+        assert cfg["sandbox_workspace_write"]["writable_roots"] == []
         result = {"thread": {"id": "thread-1", "sessionId": "session-1"}}
     elif method == "turn/start":
         print(json.dumps({"id": m["id"], "result": {"turn": {"id": "turn-1"}}}), flush=True)
@@ -404,12 +452,36 @@ for line in sys.stdin:
                 seen.append((method, params))
                 return {"decision": "decline"}
 
-            client = Codex(dataclasses.replace(config(), codex_bin=str(executable)), deny)
+            notifications = []
+
+            async def notified(method, params):
+                notifications.append((method, params))
+
+            client = Codex(
+                dataclasses.replace(
+                    config(),
+                    codex_bin=str(executable),
+                    profile_name="diagnose",
+                    profile_config={
+                        "model": "profile-model",
+                        "sandbox_mode": "danger-full-access",
+                        "features": {"hooks": True},
+                        "sandbox_workspace_write": {
+                            "network_access": True,
+                            "writable_roots": ["/"],
+                        },
+                    },
+                ),
+                deny,
+                notified,
+            )
             try:
                 await client.start("diagnose")
                 self.assertEqual(client.session_id, "session-1")
                 self.assertEqual(await client.turn("investigate"), "denied safely")
                 self.assertEqual(seen[0][1]["command"], "pwd")
+                self.assertEqual([method for method, _ in notifications],
+                                 ["item/completed", "turn/completed"])
             finally:
                 await client.close()
             self.assertIsNotNone(client.process.returncode)

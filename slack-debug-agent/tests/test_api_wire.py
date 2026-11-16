@@ -92,7 +92,7 @@ class SlackWireTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await task, "accept")
         posts = await self.records()
         self.assertEqual(posts[-1]["blocks"][-1]["elements"][0]["action_id"], "debug_approve")
-        self.assertIn("Command:\npwd", posts[-2]["text"])
+        self.assertIn("$ pwd\nin /tmp", posts[-1]["text"])
 
 
 if __name__ == "__main__":
