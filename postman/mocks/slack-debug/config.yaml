@@ -1,0 +1,10 @@
+version: 1
+name: Slack debug API wire fixture
+slug: slack-debug
+protocol: http
+port: 4091
+interceptRequests: true
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

@@ -1,0 +1,30 @@
+purpose:
+  stands_in_for: The Slack Web API subset used by the private diagnosis listener.
+  unblocks: Local HTTP verification without Slack credentials, external messages, or production access.
+assumptions:
+  - id: sdk-errors-produce-private-failures
+    status: supported
+    claim: The listener reports an ok-false Slack response and an HTTP 503 from issue reads to the originating DM without starting Codex, under the local fixture's scenarios.
+    reason: The real Slack SDK, HTTP serialization, and listener were exercised against both fixture responses; this establishes caller behavior for those modeled failures.
+    verification: On 2026-11-16 the full unittest suite with SLACK_DEBUG_SIM_URL passed against the local Postman simulation. Its request log contained the conversations.replies failures and subsequent DM chat.postMessage requests. No live Slack request was made.
+    source: slack-debug-agent/tests/test_api_wire.py; postman/mocks/slack-debug/default.js; https://docs.slack.dev/reference/methods/conversations.replies/
+    updated_at: "2026-11-16"
+  - id: reply-only-timestamp-resolves-parent
+    status: unknown
+    claim: A live Slack user-token conversations.replies call using a reply timestamp without a thread_ts query returns enough metadata to resolve the parent thread.
+    reason: The fixture returns the reply with its parent thread_ts, and the listener then reads the parent. The live provider may reject that timestamp. A complete permalink containing thread_ts takes the parent directly; errors fail visibly.
+    verification: On 2026-11-16 the modeled reply-to-root flow passed over HTTP, but no real Slack user token was available. Verify top-level, complete reply, and reply-only permalinks on the target workspace before operational use.
+    source: slack-debug-agent/slack_debug/app.py; slack-debug-agent/tests/test_api_wire.py; https://docs.slack.dev/reference/methods/conversations.replies/
+    updated_at: "2026-11-16"
+  - id: native-codex-escalation-delivery
+    status: unknown
+    claim: The target Ubuntu Codex process reliably delivers every sandbox escalation as an app-server request.
+    reason: Schema generation verifies decision values, and a subprocess wire peer verifies client routing. Neither establishes native escalation delivery or sandbox enforcement on Ubuntu.
+    verification: On 2026-11-16 the installed 0.169.0 schema and subprocess tests passed. Live escalation delivery and blocked networking still require host acceptance checks.
+    source: slack-debug-agent/tests/test_protocol_schema.py; slack-debug-agent/tests/test_agent.py; https://developers.openai.com/codex/app-server
+    updated_at: "2026-11-16"
+fingerprints:
+  - id: local-implementation
+    date: "2026-11-16"
+    commit: fd7bc92c132c6f62d3b9baa669bcbb62c4ee4243 (working tree dirty; implementation not committed)
+    cli: Postman 1.73.0; Codex 0.169.0; Python 3.12.14

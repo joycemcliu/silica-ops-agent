@@ -1,0 +1,16 @@
+# Copy into the dedicated Codex home's config.toml, then configure read-only
+# grafana_mcp_ops_dev and grafana_mcp_ops_prod MCP connections there.
+approval_policy = "on-request"
+approvals_reviewer = "user"
+sandbox_mode = "workspace-write"
+cli_auth_credentials_store = "file"
+
+[sandbox_workspace_write]
+network_access = false
+exclude_tmpdir_env_var = true
+exclude_slash_tmp = true
+
+[features]
+hooks = false
+multi_agent = false
+multi_agent_v2 = false

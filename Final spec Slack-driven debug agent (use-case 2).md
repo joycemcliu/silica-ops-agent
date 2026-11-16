@@ -8,13 +8,14 @@ Drafted November 16, 2026
 
 1. **Trigger:** In your DM with the bot, send `help debugging on <issue-permalink>`.
 2. **Ack:** The bot replies in a thread under your message: `working on thread <id>`. A bad URL or a channel that isn't allowed gets an error reply and no session.
-3. **Debugging:** A new Codex session starts in its own copy of the toolkit repo. The agent reads the issue and its thread (read-only user token) and runs your debug workflow, which updates or adds `runbook`, `incident` and `debrief` docs.
+3. **Debugging:** A new Codex session starts in the toolkit repo. The agent reads the issue and its thread (read-only user token) and runs your debug workflow. After investigation, it creates a separate documentation worktree, updates or adds `runbook`, `incident` and `debrief` docs, commits and pushes its branch, opens a PR, and removes the clean worktree.
 4. **Approval:** Anything Codex asks to run outside its sandbox appears in the thread with the full command, the working directory and the reason, plus **Approve** and **Deny** buttons. No answer in 10 minutes means deny.
 5. **Report:** The bot posts `finished debugging` in the same thread with this template:
    - **Symptom:** a brief summary
    - **Suspected cause**
    - **Evidence**
-   - **Added files:** paths of the runbook, incident and debrief docs
+   - **Added files:** repository-relative paths of the new or updated runbook, incident and debrief docs
+   - **PR:** pull request URL
 6. **Follow-up:** If you reply in the thread while the listener is still running, the same session continues.
 7. **Failure or timeout:** The bot posts `failed: <reason>`. A session that hits 2 hours is killed with `failed: timed out after 2h`.
 
@@ -24,7 +25,7 @@ Progress messages appear only at start, at approvals and at finish.
 
 - **Slack app:** one internal app. The bot token talks to you, and the user token reads the issue.
 - **Listener:** a single Python process using Bolt in Socket Mode, so it only needs outbound internet. It needs no public URL or open port.
-- **Runtime:** one `codex app-server` process per session, spawned in that session's working copy of the repo.
+- **Runtime:** one `codex app-server` process per session, spawned in the original toolkit repo. Documentation changes use a separate worktree after investigation.
 - **State:** in memory only (no database, no persistence).
 - **Host:** the office Ubuntu PC, which already has the debugging environment. Run the listener as a systemd service, with the tokens in a root-readable env file outside the repo.
 
@@ -41,7 +42,7 @@ Progress messages appear only at start, at approvals and at finish.
 
 ## Agent policy
 
-- **Sandbox:** `workspace-write`, limited to the session's repo copy. Read-only would not work, because the agent has to write the runbook, incident and debrief docs.
+- **Sandbox:** `workspace-write`, initially rooted in the toolkit repo. The agent is instructed to leave the original working tree intact; this is an instruction, not a filesystem restriction. Creating or writing the external documentation worktree and shared Git metadata can require sandbox approval.
 - **Approval policy:** `on-request`. Anything needing escalation goes to Slack.
 - **Execpolicy allowlist:** none in v1.
 - **Credentials:** read-only production access only. The agent proposes fixes and never applies them.
@@ -49,7 +50,7 @@ Progress messages appear only at start, at approvals and at finish.
 
 ## Concurrency and the working repo
 
-There is no limit on concurrent sessions, and each session writes docs into the repo. Several sessions sharing one working tree would overwrite each other's files. Proposal: a **git worktree per session** (for example `sessions/<thread-ts>` on branch `debug/<thread-ts>`). Each session's new docs then stay isolated, and the report's "Added files" list points into that worktree. You review the branch and merge or discard it.
+There is no limit on concurrent sessions. Each session investigates from the toolkit root, leaving that working tree intact, then creates a **documentation worktree per session** at `../worktree/<YYMMDD>-<agent-session-or-thread-id>/`, resolved from the original toolkit root. The ID is the actual agent session or thread ID. Each session writes documentation on its own branch, pushes it, opens a PR, and removes the clean worktree. The report links the PR and lists repository-relative file paths. You review the PR and merge or close it. A follow-up can recreate the worktree on that session's branch and update the same PR. Failed finalization retains the worktree for recovery.
 
 ## Security rules
 
@@ -74,7 +75,7 @@ There is no limit on concurrent sessions, and each session writes docs into the 
 
 ## Commit and push on finish
 
-When a session finishes, the agent commits its changes (the new or updated runbook, incident and debrief docs) to the session branch. It then pushes that branch to the remote.
+When a diagnosis finishes, the agent follows `docs/diagnose_agent.md`: write documentation in the separate worktree, review it, commit and push its branch, create a PR, then remove the clean worktree. This workflow applies to both interactive and Slack diagnosis. Git finalization is authorized by the debug request; runtime sandbox approvals still apply. Failures preserve the worktree and branch and are reported to the user. If no documentation changed, no empty commit or PR is created.
 
 ## Out of scope for v1
 
