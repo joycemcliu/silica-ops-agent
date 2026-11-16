@@ -86,7 +86,7 @@ Follow-up E16–E22 establishes missing game-side profiles as the immediate caus
 
 Initial investigation: unresolved historical trigger and recoverability. Restore production Grafana MCP and restart the agent session, then inspect Room 1 Unity/recorder and video-server logs around the two completed sessions, approximately November 13 14:02–15:35 New York. Check historical recording configuration, start/stop requests and render POST failures; check alternate local footage/backups before proposing recreation. A rerender alone cannot recreate missing source recordings. Confirm expected November 11–12 bookings separately if staff expected completed guest sessions there.
 
-The debrief-requested i-have-adhd skill was not found in available local skill paths; no use of that skill is claimed.
+The initial skill search did not find i-have-adhd. During the requested debrief, symlink-aware discovery located `.agents/skills/i-have-adhd/SKILL.md`; it was read and used. Earlier availability was not established. See the [process debrief](../debrief/docs/2026-11-16-uswindow-missing-room1-videos.md).
 
 Follow-up tunnel handling: the user started a LAN tunnel after local sudo blocked the agent-owned attempt. Do not close the shared SSH backing forward used by that user tunnel. Close the agent-only API and scoped WinRM forwards at completion; preserve the user LAN connection.
 
