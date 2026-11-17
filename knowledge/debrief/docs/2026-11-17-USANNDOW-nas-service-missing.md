@@ -22,9 +22,20 @@ None. Incident timing and tunnel permission required user input.
 
 ## Toolkit friction
 
-- [med] Port-forward and SSH scripts report `PROBE_PIDS[@]: unbound variable` during exit despite successful checks. Proposal: make empty-array cleanup safe on the supported Bash version and verify child cleanup (E7, E11).
-- [med] Grafana MCP transport failed during historical ACL query. Proposal: retain explicit evidence coverage and recovery instructions; do not infer that no ACL errors occurred (E12).
-- [low] Default sudo journal access denied and remote rg absent. Proposal: document read-only fallback commands and expected privilege limits (E11).
+- [med] [open] [Store forwarding/SSH] Port-forward and SSH scripts report `PROBE_PIDS[@]: unbound variable` during exit despite successful checks.
+  Proposal: make empty-array cleanup safe on the supported Bash version and verify child cleanup (E7, E11).\
+  Status checked: 2026-11-17 — Both [forwarding](../../../scripts/store-port-forward.sh) and [SSH](../../../scripts/store-port-forward-ssh.sh) helpers still expand empty `PROBE_PIDS` arrays under `set -u`. Repository inspection only; no child-cleanup runtime check.\
+  Remaining: Fix supported-shell empty-array cleanup and verify session-owned child cleanup.
+
+- [med] [partial] [Grafana MCP] Grafana MCP transport failed during historical ACL query.
+  Proposal: retain explicit evidence coverage and recovery instructions; do not infer that no ACL errors occurred (E12).\
+  Status checked: 2026-11-17 — The [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces) now documents forwarding recovery, MCP refresh/query retry and reporting continued failure. Repository inspection only; historical ACL evidence coverage and live transport were not rechecked.\
+  Remaining: Validate MCP query recovery and explicitly retain the historical ACL coverage gap.
+
+- [low] [unchecked] [Remote Linux commands] Default sudo journal access denied and remote rg absent.
+  Proposal: document read-only fallback commands and expected privilege limits (E11).\
+  Status checked: 2026-11-17 — The original incident establishes the denied journal access and absent remote `rg`; a complete current fallback-command/privilege reference was not verified.\
+  Remaining: Verify and document read-only fallback commands and privilege limits without assuming remote tools exist.
 
 ## Blind spots
 

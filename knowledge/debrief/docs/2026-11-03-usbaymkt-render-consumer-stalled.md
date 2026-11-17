@@ -23,17 +23,25 @@ Source: [incident and evidence ledger](../../incidents/2026-11-03-usbaymkt-rende
 
 ## Toolkit friction
 
-- [high] [queue diagnostics] Videos stayed queued while workers looked healthy and the consumer reported zero pending; several manual API checks were needed to find the mismatch. [E03/E04/E09–E12]\
-  Proposal: Add one read-only command under `scripts/` that compares video task progress, retained matching messages and consumer delivery positions, and flags disagreements.
+- [high] [open] [queue diagnostics] Videos stayed queued while workers looked healthy and the consumer reported zero pending; several manual API checks were needed to find the mismatch. [E03/E04/E09–E12]\
+  Proposal: Add one read-only command under `scripts/` that compares video task progress, retained matching messages and consumer delivery positions, and flags disagreements.\
+  Status checked: 2026-11-17 — Repository inspection found no collector under `scripts/`; the [queue runbook](../../runbooks/docs/jetstream-consumer-delivery-stalled.md) also retains it as a proposal. No live checks.\
+  Remaining: Implement and validate the read-only comparison command.
 
-- [high] [SILICA_REPO/apps/monitoring/terraform-module] Video tasks stopped progressing while sampled service health checks still passed. [E03/E04]\
-  Proposal: Add an alert for queued tasks that stop progressing, using verified task/exporter data and checking that healthy backlogs do not trigger it.
+- [high] [unchecked] [SILICA_REPO/apps/monitoring/terraform-module] Video tasks stopped progressing while sampled service health checks still passed. [E03/E04]\
+  Proposal: Add an alert for queued tasks that stop progressing, using verified task/exporter data and checking that healthy backlogs do not trigger it.\
+  Status checked: 2026-11-17 — The [queue runbook](../../runbooks/docs/jetstream-consumer-delivery-stalled.md) still lists dedicated alerting as a proposal; the configured Silica checkout and deployed alert rules were not inspected.\
+  Remaining: Verify current alert implementation and healthy-backlog behavior.
 
-- [med] [callers of scripts/store-port-forward-ssh.sh] A missing rotated log returned plain text and other downloads timed out; empty filtered output could be mistaken for no matching logs. [E14]\
-  Proposal: Report missing files, failed downloads, invalid responses and partial results explicitly; only report no matching entries after a successful, complete read.
+- [med] [unchecked] [callers of scripts/store-port-forward-ssh.sh] A missing rotated log returned plain text and other downloads timed out; empty filtered output could be mistaken for no matching logs. [E14]\
+  Proposal: Report missing files, failed downloads, invalid responses and partial results explicitly; only report no matching entries after a successful, complete read.\
+  Status checked: 2026-11-17 — The [SSH wrapper](../../../scripts/store-port-forward-ssh.sh) delegates remote commands to callers; the original download/filter callers and their current replacements were not verified.\
+  Remaining: Identify those callers and validate missing-file, timeout, invalid-response and partial-read handling.
 
-- [med] [scripts/store-port-forward-ssh.sh] SSH readiness timed out when kubectl advertised an IPv6 listener but SSH expected IPv4. [E24]\
-  Proposal: Make forwarding and readiness checks use the same IPv4 address as SSH, and verify occupied-port and IPv6-only cases without changing pre-existing tunnels.
+- [med] [partial] [scripts/store-port-forward-ssh.sh] SSH readiness timed out when kubectl advertised an IPv6 listener but SSH expected IPv4. [E24]\
+  Proposal: Make forwarding and readiness checks use the same IPv4 address as SSH, and verify occupied-port and IPv6-only cases without changing pre-existing tunnels.\
+  Status checked: 2026-11-17 — [SSH wrapper](../../../scripts/store-port-forward-ssh.sh) inspection confirms IPv4 probes and SSH destination, and IPv4 binding for node probes; the final SSH forward lacks an explicit bind address. No runtime checks.\
+  Remaining: Align the final forward binding and validate occupied-port/IPv6-only cases while preserving existing tunnels.
 
 ## Blind spots
 

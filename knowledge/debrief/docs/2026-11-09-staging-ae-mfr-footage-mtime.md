@@ -24,10 +24,25 @@ Initial closeout: diagnosis complete; staging workaround validated; implementati
 
 ## Toolkit friction
 
-- [high] `docs/diagnose_toolkit.md`: staging renderer access and interactive execution were not covered. Proposal: add a staging PC discovery/access preflight and a guarded diagnostic runner that matches the worker's desktop context.
-- [high] Native render evidence: watchdog messages obscured crashes, and `aerender` could return zero after a native connection error. Proposal: persist per-run stdout/stderr, exact arguments, output validation, and newly created native dumps together.
-- [med] Opaque AE metadata: checking a few example records hid additional field changes. Proposal: standardize a whole-project field-diff report before naming a variant or asserting isolation.
-- [low] Full local Go module tests hit an existing Darwin process-helper build gap. Proposal: document the supported focused-test and Windows-build paths until native Mac support is addressed separately.
+- [high] [partial] [docs/diagnose_toolkit.md] staging renderer access and interactive execution were not covered.
+  Proposal: add a staging PC discovery/access preflight and a guarded diagnostic runner that matches the worker's desktop context.\
+  Status checked: 2026-11-17 — The [toolkit](../../../docs/diagnose_toolkit.md) now covers staging discovery/direct WinRM access; the [AE runner skill](../../../docs/skills/ae-render-test-launch/SKILL.md) covers worker desktop preflight and execution. Repository inspection only; the skill explicitly leaves Windows/AE end-to-end execution unverified.\
+  Remaining: Validate discovery/access and controlled execution on an authorized Windows renderer.
+
+- [high] [partial] [Native render evidence] Native render evidence: watchdog messages obscured crashes, and `aerender` could return zero after a native connection error.
+  Proposal: persist per-run stdout/stderr, exact arguments, output validation, and newly created native dumps together.\
+  Status checked: 2026-11-17 — The [runner](../../../scripts/windows-ae-test.ps1) retains command arrays, stdout/stderr, output validation and optional new/changed dumps. The [runner skill](../../../docs/skills/ae-render-test-launch/SKILL.md) documents evidence interpretation and simulated-process coverage; live Windows/AE behavior remains unverified.\
+  Remaining: Validate the evidence bundle and failure detection end to end on Windows/AE, including configured dump collection.
+
+- [med] [open] [AE metadata comparison] Opaque AE metadata: checking a few example records hid additional field changes.
+  Proposal: standardize a whole-project field-diff report before naming a variant or asserting isolation.\
+  Status checked: 2026-11-17 — No reusable whole-project field-diff tool was found under `scripts/`; the [AE runbook](../../runbooks/docs/ae-mfr-footage-mtime.md) retains the incident-specific methodology. Repository inspection only.\
+  Remaining: Standardize and validate a whole-project field-diff report before asserting single-field isolation.
+
+- [low] [unchecked] [Go build/test guidance] Full local Go module tests hit an existing Darwin process-helper build gap.
+  Proposal: document the supported focused-test and Windows-build paths until native Mac support is addressed separately.\
+  Status checked: 2026-11-17 — The configured Silica checkout's current build support and focused-test instructions were not inspected; the incident's Darwin limitation is historical evidence only.\
+  Remaining: Verify supported focused-test/Windows-build commands and current Darwin limitations.
 
 ## Blind spots
 
