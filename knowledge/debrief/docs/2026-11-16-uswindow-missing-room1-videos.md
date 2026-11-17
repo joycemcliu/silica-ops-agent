@@ -34,10 +34,10 @@ Elapsed minutes were not recorded; no timing claims are made.
   Status checked: 2026-11-17 — The [forwarding](../../../scripts/store-port-forward.sh) and [SSH](../../../scripts/store-port-forward-ssh.sh) helpers still expand empty `PROBE_PIDS` arrays under `set -u`; no matching regression tests were found under `scripts/tests/`. Repository inspection only.\
   Remaining: Fix cleanup, document a persistent-session invocation and validate survival/connectivity separately from exit status.
 
-- [high] [open] [fragmented evidence] Session evidence required separate task, media and log checks.
+- [high] [improved] [fragmented evidence] Session evidence required separate task, media and log checks.
   Proposal: Add one read-only session inventory joining status/mode, experience, local-day timestamp, full task map, shared/local media presence and log coverage. Keep unavailable distinct from zero (E25–E27).\
-  Status checked: 2026-11-17 — Inspection of `scripts/` found no joined session-inventory command; the [runbook](../../runbooks/docs/missing-video-task-registration.md) still describes separate API, log and file checks. No live checks.\
-  Remaining: Implement and validate the joined inventory, preserving unavailable versus zero.
+  Status checked: 2026-11-17 — Rechecked the [platform index](../../platform/INDEX.md) and linked session/video guides and collectors. They expose identity, mode/status, local times and full individual task/dependency details, distinguishing unavailable evidence from zero tasks. All 10 offline collector tests passed. Per user direction, indexed inspection addresses this friction instead of requiring one joined command. Storage presence and log coverage remain separate checks; live deployment behavior was not validated.\
+  Remaining: None for the accepted indexed-inspection scope; a joined storage/log inventory is not required for closeout.
 
 - [high] [unchecked] [incomplete health] recorder health passed while game profiles were absent.
   Proposal: Add a per-experience profile-file/parse preflight so missing profiles are visible before a guest session starts (E07, E16–E17).\
@@ -49,10 +49,10 @@ Elapsed minutes were not recorded; no timing claims are made.
   Status checked: 2026-11-17 — The original debrief records a successful symlink-aware lookup, but the earlier failing discovery path and any general fix were not verified.\
   Remaining: Identify the discovery path and verify symlink handling before marking the toolkit improved.
 
-- [med] [partial] [observability access] Grafana MCP tools were unavailable.
+- [med] [improved] [observability access] Grafana MCP tools were unavailable.
   Proposal: Report the limitation once, keep supported retained-log checks available, and leave Grafana recovery to the user (E11, E14–E16).\
-  Status checked: 2026-11-17 — The [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces) now specifies forwarding status/start, MCP refresh, query retry and reporting persistent failure. No live MCP checks were performed.\
-  Remaining: Validate restored tool/query access and keep unavailable historical evidence explicit.
+  Status checked: 2026-11-17 — Rechecked [store forwarding](../../../scripts/store-port-forward.sh): detached workers retry disconnects every 3 seconds and rediscover replacement Nomad pods. All 4 forwarding regression tests passed using fake tools and loopback connections, including launcher-exit survival, reconnect, reuse and cleanup. The [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces) documents reporting persistent MCP failures. Per user direction, improved covers store-connection resilience and failure handling; store forwarding does not repair Grafana MCP transport or tool exposure. No live MCP query was validated.\
+  Remaining: None in the accepted scope. MCP failures remain unresolved and are excluded from this follow-up; unavailable historical evidence remains explicit.
 
 ## Blind spots
 

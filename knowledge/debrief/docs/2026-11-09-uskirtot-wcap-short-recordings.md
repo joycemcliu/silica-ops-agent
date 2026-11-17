@@ -24,10 +24,10 @@ Source: [incident and evidence ledger](../../incidents/2026-11-07-uskirtot-wcap-
 
 ## Toolkit friction
 
-- [high] [partial] [Grafana forwarding] Grafana helper assumes Linux tools and failed on macOS because flock was absent.
+- [high] [improved] [Grafana forwarding] Grafana helper assumes Linux tools and failed on macOS because flock was absent.
   Proposal: document a supported macOS path and separately verify forwarding, handshake and tool exposure. No helper/config changes made during the incident. [E02]\
-  Status checked: 2026-11-17 — [Helper](../../../scripts/grafana-mcp-forward.sh) inspection confirms macOS detachment/port checks and prerequisite errors. The [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces) separates forwarding recovery from MCP refresh/query retry; macOS prerequisites are now documented. No live checks.\
-  Remaining: Verify forwarding, handshake and query-tool exposure separately on macOS.
+  Status checked: 2026-11-17 — Rechecked the [Grafana helper](../../../scripts/grafana-mcp-forward.sh) and [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces): macOS prerequisites/support and recovery versus MCP refresh are documented. [Store forwarding](../../../scripts/store-port-forward.sh) now detaches, retries disconnects every 3 seconds and rediscovers replacement Nomad pods. All 4 forwarding regression tests passed using fake tools and loopback connections. Per user direction, improved covers documented recovery and store reconnection; store forwarding does not repair Grafana MCP transport or tool exposure. No live Grafana handshake/query was validated.\
+  Remaining: None in the accepted recovery scope. MCP failures remain unresolved and are excluded from this follow-up.
 
 - [med] [open] [Store forwarding] Store helper emitted an unbound empty-array error under the local Bash; background forwards also required a held terminal.
   Proposal: handle empty arrays on supported shells and verify tunnel survival after helper exit. [E03]\

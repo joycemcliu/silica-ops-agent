@@ -27,10 +27,10 @@ None. Incident timing and tunnel permission required user input.
   Status checked: 2026-11-17 — Both [forwarding](../../../scripts/store-port-forward.sh) and [SSH](../../../scripts/store-port-forward-ssh.sh) helpers still expand empty `PROBE_PIDS` arrays under `set -u`. Repository inspection only; no child-cleanup runtime check.\
   Remaining: Fix supported-shell empty-array cleanup and verify session-owned child cleanup.
 
-- [med] [partial] [Grafana MCP] Grafana MCP transport failed during historical ACL query.
+- [med] [improved] [Grafana MCP] Grafana MCP transport failed during historical ACL query.
   Proposal: retain explicit evidence coverage and recovery instructions; do not infer that no ACL errors occurred (E12).\
-  Status checked: 2026-11-17 — The [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces) now documents forwarding recovery, MCP refresh/query retry and reporting continued failure. Repository inspection only; historical ACL evidence coverage and live transport were not rechecked.\
-  Remaining: Validate MCP query recovery and explicitly retain the historical ACL coverage gap.
+  Status checked: 2026-11-17 — Rechecked [store forwarding](../../../scripts/store-port-forward.sh): detached workers retry disconnects every 3 seconds and rediscover replacement Nomad pods. All 4 forwarding regression tests passed using fake tools and loopback connections. The [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces) documents recovery and reporting persistent MCP failure. Per user direction, improved covers store reconnection and explicit evidence limitations, not repair of Grafana MCP transport. Historical ACL coverage and live MCP queries were not revalidated.\
+  Remaining: None in the accepted scope. MCP failures remain unresolved and are excluded from this follow-up; the historical ACL coverage gap remains.
 
 - [low] [unchecked] [Remote Linux commands] Default sudo journal access denied and remote rg absent.
   Proposal: document read-only fallback commands and expected privilege limits (E11).\
