@@ -11,7 +11,10 @@ Start here. Each entry says **when to read** the doc. Rules for using and mainta
 
 ## Domain debug guides (`docs/domains/`)
 
-No domain debug guides yet. For queue-delivery triage, follow the runbook linked from the flow below.
+| Doc | Read when | Services | Status |
+| --- | --- | --- | --- |
+| [Session inspection](docs/domains/session-inspection.md) | Session identity, room, timing, mode, or status is unclear | session-server | draft |
+| [Video inspection](docs/domains/video-inspection.md) | Locate video task progress, dependency waits, errors, or reported outputs | video-server, video-dge-renderer | draft |
 
 ## Flow docs (`docs/flows/`)
 
@@ -23,6 +26,8 @@ No domain debug guides yet. For queue-delivery triage, follow the runbook linked
 
 | Symptom                                                              | Go to                                                                                          |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Session identity, timing, mode, or status is unclear | [Session inspection](docs/domains/session-inspection.md) |
+| Need individual video tasks, dependencies, progress, or errors | [Video inspection](docs/domains/video-inspection.md) |
 | Runnable video tasks stay Queuing despite healthy workers            | [Queue delivery failure points](docs/flows/nats-video-render-queue-delivery.md#failure-points) |
 | Consumer pending is zero despite retained matching messages          | [Queue delivery failure points](docs/flows/nats-video-render-queue-delivery.md#failure-points) |
 | Dependent highlights stay Pending while child tasks stop progressing | [Queue delivery sequence](docs/flows/nats-video-render-queue-delivery.md#sequence)             |
