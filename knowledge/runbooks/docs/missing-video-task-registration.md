@@ -3,8 +3,8 @@ title: "Missing video-list entries with empty render-task maps"
 slug: missing-video-task-registration
 services: [video-server, video-dge, unity]
 tags: [video, recording, missing-tasks]
-status: draft
-last_verified:
+status: reviewed
+last_verified: 2026-11-17
 applies_to:
   video_server: "1.6.5"
   unity_observed_build: "SquidGame V3.7.2.rc1"

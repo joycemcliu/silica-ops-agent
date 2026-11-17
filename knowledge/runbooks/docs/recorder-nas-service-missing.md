@@ -3,8 +3,8 @@ title: Recorders running but footage uploads fail NAS discovery
 slug: recorder-nas-service-missing
 services: [video-dge, consul, synology]
 tags: [recording, dns, service-discovery]
-status: draft
-last_verified:
+status: reviewed
+last_verified: 2026-11-17
 applies_to: {video: "1.6.5", video-dge: "0.4.6"}
 source_incidents: [../../incidents/2026-11-17-usanndow-nas-service-missing.md]
 ---
