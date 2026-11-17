@@ -41,12 +41,15 @@ print_prefixed_file() {
 
 cleanup_port_forward() {
   local probe_pid
-  for probe_pid in "${PROBE_PIDS[@]}"; do
-    kill "$probe_pid" 2>/dev/null || true
-  done
-  for probe_pid in "${PROBE_PIDS[@]}"; do
-    wait "$probe_pid" 2>/dev/null || true
-  done
+  # Bash 3.2 treats an empty array expansion as unset under nounset.
+  if (( ${#PROBE_PIDS[@]} )); then
+    for probe_pid in "${PROBE_PIDS[@]}"; do
+      kill "$probe_pid" 2>/dev/null || true
+    done
+    for probe_pid in "${PROBE_PIDS[@]}"; do
+      wait "$probe_pid" 2>/dev/null || true
+    done
+  fi
   PROBE_PIDS=()
   if [[ -n "$PROBE_DIR" ]]; then
     rm -rf -- "$PROBE_DIR"
@@ -497,7 +500,7 @@ else
 
   info "Starting SSH port-forward to ${PORT_FORWARD_TARGET} on port ${SSH_PORT}(ssh)..."
   kubectl --context ${CONTEXT} -n "$NAMESPACE" port-forward "$PORT_FORWARD_TARGET" \
-    "${SSH_PORT}:${REMOTE_SSH_PORT}" >"$LOG_FILE" 2>&1 &
+    --address 127.0.0.1 "${SSH_PORT}:${REMOTE_SSH_PORT}" >"$LOG_FILE" 2>&1 &
   PORT_FORWARD_PID=$!
   CREATED_PORT_FORWARD_PID="$PORT_FORWARD_PID"
 

@@ -217,12 +217,15 @@ PROBE_DIR=""
 PROBE_PIDS=()
 cleanup_node_probes() {
   local probe_pid
-  for probe_pid in "${PROBE_PIDS[@]}"; do
-    kill "$probe_pid" 2>/dev/null || true
-  done
-  for probe_pid in "${PROBE_PIDS[@]}"; do
-    wait "$probe_pid" 2>/dev/null || true
-  done
+  # Bash 3.2 treats an empty array expansion as unset under nounset.
+  if (( ${#PROBE_PIDS[@]} )); then
+    for probe_pid in "${PROBE_PIDS[@]}"; do
+      kill "$probe_pid" 2>/dev/null || true
+    done
+    for probe_pid in "${PROBE_PIDS[@]}"; do
+      wait "$probe_pid" 2>/dev/null || true
+    done
+  fi
   PROBE_PIDS=()
   if [[ -n "$PROBE_DIR" ]]; then
     rm -rf -- "$PROBE_DIR"
@@ -481,7 +484,7 @@ if ! get_nomad_local_ports; then
 
   echo "Starting port-forward for pod/${NOMAD_POD} via ${KUBECTL_CONTEXT} on Nomad:${LOCAL_PORT}..." >&2
   "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward "pod/${NOMAD_POD}" \
-    "${LOCAL_PORT}:4646" >"$LOG_FILE" 2>&1 &
+    --address 127.0.0.1 "${LOCAL_PORT}:4646" >"$LOG_FILE" 2>&1 &
   PF_PID=$!
   disown "$PF_PID" 2>/dev/null || true
 
@@ -505,7 +508,7 @@ if ! get_shared_local_ports; then
 
   echo "Starting port-forward for pod/${SHARED_POD} via ${KUBECTL_CONTEXT} on Consul:${CONSUL_PORT}, HTTPS:${HTTPS_PORT}, PG:${PG_PORT}..." >&2
   "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward "pod/${SHARED_POD}" \
-    "${CONSUL_PORT}:8500" \
+    --address 127.0.0.1 "${CONSUL_PORT}:8500" \
     "${HTTPS_PORT}:443" \
     "${PG_PORT}:5432" >"$LOG_FILE" 2>&1 &
   PF_PID=$!
