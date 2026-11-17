@@ -106,7 +106,7 @@ read_choice() {
   printf -v "$output_var" '%s' "$choice"
 }
 
-PROCESS_REGEX='kubectl.*port-forward'
+PROCESS_REGEX='kubectl.*port-forward|store-port-forward.sh --reconnect'
 
 extract_port() {
   local cmd="$1"
@@ -158,7 +158,13 @@ for PID in "${ALL_PIDS[@]}"; do
 
   FIRST_ARG=${CMD%% *}
   FIRST_BASENAME=${FIRST_ARG##*/}
-  [[ "$FIRST_BASENAME" != "kubectl" ]] && continue
+  if [[ "$CMD" != *"store-port-forward.sh --reconnect "* ]]; then
+    [[ "$FIRST_BASENAME" == "kubectl" ]] || continue
+    # Stop the worker once, rather than listing its temporary child as well.
+    PARENT_PID=$(ps -p "$PID" -o ppid= 2>/dev/null || true)
+    PARENT_CMD=$(ps -p "${PARENT_PID//[[:space:]]/}" -o args= 2>/dev/null || true)
+    [[ "$PARENT_CMD" == *"store-port-forward.sh --reconnect "* ]] && continue
+  fi
 
   TYPE=""
   TARGET=""

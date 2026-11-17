@@ -33,11 +33,14 @@ with open(root / 'calls.jsonl', 'a') as log:
     log.write(json.dumps([name, args]) + '\\n')
 if name == 'kubectl':
     if 'port-forward' in args:
+        if os.getsid(0) == os.getppid():
+            (root / ('worker-' + str(os.getppid()))).touch()
         listeners = []
         if os.environ.get('LOCAL_TCP'):
             for arg in args:
                 if ':' in arg and arg.split(':')[0].isdigit():
                     listener = socket.socket()
+                    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     listener.bind(('127.0.0.1', int(arg.split(':')[0])))
                     listener.listen()
                     listeners.append(listener)
@@ -60,9 +63,12 @@ if name == 'kubectl':
     elif 'statefulset' in args:
         print('26')
     elif 'pods' in args:
-        print('pod/teststore-socat-nomad-1-test')
+        pod_file = root / 'nomad-pod'
+        print(pod_file.read_text() if pod_file.exists() else 'pod/teststore-socat-nomad-1-test')
 elif name == 'nc':
     sys.exit(0 if os.environ.get('REUSE_COMMAND') or (root / ('port-' + args[-1])).exists() else 1)
+elif name in ('ps', 'pgrep') and os.environ.get('REAL_PS'):
+    os.execv('/bin/ps' if name == 'ps' else '/usr/bin/pgrep', [name, *args])
 elif name == 'pgrep':
     if os.environ.get('REUSE_COMMAND') and re.search(args[-1], os.environ['REUSE_COMMAND']):
         print('4242')
@@ -85,6 +91,12 @@ elif name in ('ssh', 'sshuttle'):
         self.addCleanup(self.stop_forwards)
 
     def stop_forwards(self):
+        for marker in self.root.glob("worker-*"):
+            try:
+                os.kill(int(marker.name.split('-')[1]), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            marker.unlink()
         for marker in self.root.glob("port-*"):
             try:
                 os.kill(int(marker.read_text()), signal.SIGTERM)
@@ -167,7 +179,8 @@ elif name in ('ssh', 'sshuttle'):
         self.assertEqual(len(pids), 2)
         for pid in pids:
             state = json.loads((self.root / f"session-{pid}").read_text())
-            self.assertEqual(state["sid"], pid)
+            self.assertEqual(state["sid"], os.getsid(pid))
+            self.assertNotEqual(state["sid"], pid)
             self.assertNotEqual(state["sid"], launcher.pid)
             self.assertTrue(state["stdin_null"])
         # Use every forwarded endpoint from a separate, short-lived command.
@@ -179,8 +192,30 @@ elif name in ('ssh', 'sshuttle'):
             *map(str, ports),
         ], capture_output=True, text=True, timeout=10)
         self.assertEqual(client.returncode, 0, client.stderr)
-        stopped = subprocess.run(["/bin/kill", "-TERM", *map(str, pids)], capture_output=True, timeout=5)
-        self.assertEqual(stopped.returncode, 0, stopped.stderr)
+        # Both tunnels restart, including a Nomad pod replaced with a new hash.
+        (self.root / 'nomad-pod').write_text('pod/teststore-socat-nomad-1-replaced')
+        for pid in pids:
+            os.kill(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 8
+        while {int(marker.read_text()) for marker in self.root.glob('port-*')} & pids:
+            self.assertLess(time.monotonic(), deadline, 'Forwards did not reconnect')
+            time.sleep(0.05)
+        calls = [args for name, args in map(json.loads, self.log.read_text().splitlines())
+                 if name == 'kubectl' and 'port-forward' in args]
+        self.assertTrue(any('pod/teststore-socat-nomad-1-replaced' in args for args in calls))
+        reused = subprocess.run(
+            [BASH, str(SCRIPTS / 'store-port-forward.sh'), '--store', 'teststore', '--node', '1'],
+            env={**self.env, **overrides, 'REAL_PS': '1'}, cwd=self.root,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertEqual(len(calls), 4)
+        stopped = subprocess.run(
+            [BASH, str(SCRIPTS / 'store-port-forward-cleanup.sh'), '--store', 'teststore'],
+            env={**self.env, 'REAL_PS': '1'}, input='\n', capture_output=True, text=True, timeout=5,
+        )
+        self.assertEqual(stopped.returncode, 0, stopped.stdout + stopped.stderr)
+        self.assertIn('Killing PIDs:', stopped.stdout)
         for port in ports:
             deadline = time.monotonic() + 3
             while True:
@@ -191,6 +226,10 @@ elif name in ('ssh', 'sshuttle'):
                     break
                 self.assertLess(time.monotonic(), deadline, "Forward did not stop")
                 time.sleep(0.01)
+        time.sleep(3.2)
+        calls_after_stop = [args for name, args in map(json.loads, self.log.read_text().splitlines())
+                            if name == 'kubectl' and 'port-forward' in args]
+        self.assertEqual(len(calls_after_stop), 4, 'Cleanup must stop retries')
 
     def test_exit_cleanup_handles_empty_and_populated_probe_arrays(self):
         for script in ("store-port-forward.sh", "store-port-forward-ssh.sh"):
