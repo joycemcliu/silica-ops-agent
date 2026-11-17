@@ -7,3 +7,5 @@ slug | symptom keywords | services
 [webcam-mjpeg-720p-top-left-crop](docs/webcam-mjpeg-720p-top-left-crop.md) | Raw webcam zoomed/cropped; DirectShow MJPEG 720p top-left truncation; 1080p downscale workaround | video-dge, webcam
 [wcap-short-recordings](docs/wcap-short-recordings.md) | Black selfie sections; one-frame or short in-game recordings; Success despite incomplete capture; WCap initialization timing | video-dge, video-server, unity
 [ae-mfr-footage-mtime](docs/ae-mfr-footage-mtime.md) | AE log timeout; MFR native crashes; inherited footage modification metadata; zero-exit invalid output | video-dge-renderer, after-effects
+
+[recorder-nas-service-missing](docs/recorder-nas-service-missing.md) | Missing footage; dead legacy recorder jobs; NAS DNS lookup fails; running DGE recorders | video-dge, consul, synology
