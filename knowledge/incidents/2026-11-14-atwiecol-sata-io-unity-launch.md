@@ -1,0 +1,126 @@
+---
+title: "ATWIECOL Unity launch failures induced by SATA I/O stalls"
+incident_date: 2026-11-14
+incident_time_range: "Reported at 19:54 UTC; supporting failures before and after submission; follow-up through 2026-11-17"
+timezone: UTC
+store: ATWIECOL
+status: closed
+closure_date: 2026-11-17
+runbook: ../runbooks/docs/sata-io-jetstream-launch-failure.md
+---
+
+## Report, impact and scope
+
+Staff reported Unity not launching on SPCs and experience servers across all rooms and experiences. Silica remained Checking and subsequently displayed Error. Some experiences were initially unavailable in session setup; an AWX Silica job restart reportedly restored the selection list but did not restore Unity launches at that point. Staff reported healthy Synology and postgres-ha, SSH access to the masters, and running Nomad jobs. The referenced screenshot was not available in this conversation.
+
+The user reported the issue already resolved and accepted strong evidence of a SATA I/O induced incident. Follow-up diagnosis examined NATS job stability, synchronization semantics, deployed health checks and I/O attribution. After reviewing the findings and proposed actions, the user requested final diagnosis completion and closure. The final recovery action and time were requested but not supplied. No external ticket system was updated.
+
+## Instance details
+
+| Item | Value |
+| --- | --- |
+| Investigation date | 2026-11-17 |
+| Fixed configuration | `SILICA_REPO=../silica`; `SILICA_ENV_REPO=../silica-environments`, relative to repository root |
+| Store timezone | `Europe/Vienna`; this report normalizes event times to UTC |
+| Masters | master-1 / 10.182.0.101; master-2 / 10.182.0.102; master-3 / 10.182.0.103 |
+| Common computer/controller | AZW MINI S; BIOS MINIS13001; Intel SATA controller 8086:54d3, subsystem 8086:7270, driver ahci |
+| Common OS/storage | Kernel 5.15.0-101-generic; FORESEE 512GB M.2 SATA SSD, firmware D910R170; `/dev/sda2` EXT4 root filesystem |
+| Master-1 SSD | Serial PCM227R028340 |
+| Master-2 SSD | Serial PD24532020368 |
+| Master-3 SSD | Serial PD24532021814 |
+| NATS backing storage | All three inspected `/silica-infra/nats` directories resolve to `/dev/sda2`; running master-1 NATS container confirms host `/silica-infra/nats` bound to `/data` |
+| Observability | Production Grafana datasource `silica-loki` and `silica-mimir`; selectors `cluster="ATWIECOL"` |
+
+## Evidence ledger
+
+Scope: retained production logs and metrics, live read-only SSH checks, and source/deployment inspection. Commands below group repeated attempts using the same check. Remote privileged diagnostics used the configured login credential through stdin; no credential contents are retained here. No SMART self-test, benchmark, firmware/configuration change, filesystem repair, reboot, or production remediation was performed.
+
+| ID | Tag | Command/query or evidence source | Result summary |
+| --- | --- | --- | --- |
+| E01 | observed | Read root config, diagnosis workflow/toolkit, store AGENTS.md/store.tf, platform/runbook indexes; `git -C ../silica status --short --branch` and equivalent environment-repo check | Both configured repositories initially clean on master. No fetch, checkout, or update performed. Current source was inspected; exact incident-deployed source revision was not established. |
+| E02 | observed | Production Grafana `list_datasources`, Loki label-name/value discovery; initial log queries over 19:00–20:30 | Confirmed retained store data and actual cluster/job labels. Broad queries were truncated; narrower queries underpin the findings. |
+| E03 | observed | `./scripts/grafana-mcp-forward.sh status`, `start`, and status/retry | Initial Grafana transport unavailable. Sandboxed start could not access gcloud credential storage and timed out. Escalated start restored both endpoints; MCP queries then succeeded. |
+| E04 | observed | Loki `{cluster="ATWIECOL",job="infra/nats"} |= "input/output error"`, sampled over the incident day and narrowed to 17:00–20:10 | master-3 had critical RAFT/filestore write failures at 17:20:13 and stream-not-current at 18:06:25. master-1 had critical filestore sync failures at 19:42:51. Some sampled same-day errors predated the reported window. |
+| E05 | observed | NATS queries filtering `NO quorum`, `WriteFullState`, leadership changes, `[WRN]` and `[ERR]` | Stream and experience-launch consumers lost quorum; master-3 state-preparation warnings reported minute-long durations with 62–69-byte serialized buffers around 18:59. These are not direct disk-write duration measurements; see E24. At 19:42:21 and 19:42:46, master-2 reported the silica stream had no quorum. |
+| E06 | observed | Loki `{cluster="ATWIECOL",job=~"experience-conductor.*"}` filtered for `panic:`, `leadership change`, and queue startup failures; narrowed around 19:35–20:00 | Commands/events services repeatedly logged leadership changes, queue timeouts and `panic: failed to reconnect queue after max retries: queue stopped` across master allocations. Examples: 19:41:22 and 19:48–19:50. |
+| E07 | observed | Loki experience jobs and session/server queries around 19:40–20:10 | At 19:40, session health could not resolve `experience-h1-p0.service.silica`. Around 19:51, SPC jobs waited for that server to be ready. Some other Unity processes were running and later disconnected; the report's universal scope was not independently proven session by session. |
+| E08 | observed | Loki systemd-journal filtering `I/O error`, `DID_TIME_OUT`, `CDB:`, and ATA errors; matching live `journalctl -k --since '2026-11-14' --utc --no-pager --grep=...` | master-1 block/EXT4 write failures at 19:48:43; master-2 at 20:02:57. Retained kernel logs on all masters show `WRITE FPDMA QUEUED`, timeout/frozen queues and SATA hard resets. master-3's 17:20:13 kernel failure aligns with its NATS write failures. |
+| E09 | observed | Live `hostname`, `lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT,MODEL,TRAN`, `findmnt -T /silica-infra/nats`, sysfs device readlink, `df -h /` on masters 1–3 | Identified separate local SATA SSDs, EXT4 root backing the NATS directories, and approximately 396–403 GB free per host at inspection. This is not a NAS/iSCSI-backed NATS directory in the inspected state. |
+| E10 | observed | Authenticated read-only `smartctl -a /dev/sda` on all masters; `smartctl -x /dev/sda` on master-1; `smartctl -g wcache -l sataphy -l devstat /dev/sda` on master-2; wcache/sataphy on master-3 | All report PASSED, no logged SMART errors/self-tests, zero reallocated sectors and UDMA CRC errors. PHY CRC/R_ERR counters are zero; COMRESET counters are 7/5/11 respectively. SMART pass does not contradict host-observed timeouts. Device not in installed smartctl database; vendor-specific endurance fields were not treated as reliable remaining-life percentages. |
+| E11 | observed | Live DMI sysfs, `uname -r`, `lspci -nnk`, link-power-management policy, queue depth, scheduler and timeout reads | Same computer, BIOS, controller, SSD firmware and kernel across hosts. Current link policy max_performance, queue depth 32, and write cache disabled. These are current settings, not a complete historical configuration audit. |
+| E12 | observed | `journalctl -u fstrim.service --since '2026-11-13' --utc --no-pager` | Recorded scheduled TRIM runs were on November 15–16, after the initial incident. Does not exclude every possible manual/discard activity. First timer filter used unavailable remote rg and was not relied on. |
+| E13 | observed | Mimir metric-name discovery, instance label discovery; 60-second-step queries over November 14 17:00–21:00 | Per-host peak estimated mean write completion times: master-3 18.2 s at 18:59, master-1 18.2 s at 19:44, master-2 17.2 s at 20:02. Computed as rate(write time)/rate(completed writes), not individual-request tracing. |
+| E14 | observed | `rate(node_disk_written_bytes_total{cluster="ATWIECOL",instance=~"master-.*",device="sda"}[1m])`; `avg by(instance) (rate(node_cpu_seconds_total{cluster="ATWIECOL",instance=~"master-.*",mode="iowait"}[1m]))` | master-1 around 19:43–19:48 completed about 3–7 KB/s of writes with about 93–94% I/O wait. Low completed throughput is a stall signature, not proof of low submitted workload. |
+| E15 | observed | Subsequent Loki systemd-journal queries, scoped by instance and filtered for timeouts/write errors over November 16 08:00–November 17 08:30 | Further master-1 errors through November 17 01:28:48 and master-2 through November 16 22:26:44. No matches for master-3 in that selected window; this does not prove permanent recovery or complete log coverage. |
+| E16 | observed | Running master-1 NATS container `docker ps --format` followed by mount-only `docker inspect --format` | Confirmed `/silica-infra/nats` → `/data`. Unprivileged Docker inspection failed; separate sudo invocations did not share authentication. Final single authenticated read-only shell completed the inspection. |
+| E17 | observed | Source reads: experience-conductor event/command handlers and services, commands main, simplequeue queue_start.go, session experience health data source; NATS Terraform/template | Launch depends on queued command consumption and Nomad job creation. Exhausted queue recovery can propagate to panic. Session health follows application connectivity. Current source supports the mechanism but is not an exact deployed-version audit. |
+| E18 | observed | Manufacturer/firmware web search; upstream Linux v5.15 libata source and kernel documentation | Upstream source supports noncq configuration. No validated vendor advisory or firmware fix for this installed combination was established. No change or NCQ-disabled experiment performed. |
+| E19 | inferred | E04–E17 and temporal correlation | Strongly supported operational cause: SATA I/O stalls disrupted NATS persistence/quorum and launch-service operation, explaining widespread launch failure. Exact SSD/firmware/controller/driver defect remains unidentified. |
+| E20 | not-checked | Controlled hardware substitution, NCQ-disabled comparison, extended self-test, vendor firmware investigation, exhaustive session impact, final recovery action, missing-experience causality | No component-level diagnosis or permanent repair established; no claim that every attempted launch was lost specifically at the same queue boundary. |
+| E21 | observed | Final escalated process inventory scoped to ATWIECOL SSH forwards and Grafana; Grafana helper status | No session ATWIECOL SSH forwards remained. Both shared Grafana endpoints reachable and left running. Unrelated local `slack-debug-agent/` directory preserved. |
+| E22 | observed | Follow-up Loki startup/shutdown/version query for infra/nats over November 14; full-day Nomad allocation query for 18d66868-40ee-261d-6e77-c50fe349e652, plus narrow task-event read | master-3 NATS 2.15.2 main started 10:06:24 UTC and ran in the same allocation until a Nomad interrupt at 23:34:11. Only create-stream retried once at 10:06:27, succeeding at 10:06:30. No recorded main-task restart between startup and the late stop. All three brokers were stopped/replaced around 23:34, hours after submission; actor/intent not established. |
+| E23 | observed | Follow-up NATS logs 16:30–19:55 and hourly-warning query 10:00–23:40 | master-3 had route disruptions before its 17:20:13 local write failures. At 17:20:14/17, syncing the stream Raft index failed and snapshot installation failed. Identical stream-not-current reason repeated hourly at 18:06 through 23:06 in the same allocation. Connection/quorum instability is distinct from Nomad task restarts. |
+| E24 | observed | Upstream nats-server v2.15.2 source: server/raft.go setWriteErrLocked/GetWriteErr, jetstream_cluster.go isStreamHealthy, monitor.go healthz, filestore.go _writeFullState | Raft records a critical write error and shuts down the affected Raft node; stream health returns that stored error. The 18:06 warning need not represent a fresh fsync. WriteFullState warning times state preparation before os.WriteFile and reports buffer size, not total replicated volume or a timed write of that many bytes. Earlier conversational wording that small writes themselves took minutes is corrected here. |
+| E25 | observed | Current NATS Nomad template and ATWIECOL module-infra.tf | Configured image nats:2.15.2. Service check uses /healthz?js-enabled-only=true; upstream matching-version implementation skips stream/consumer health in this mode. Historical deployment was subsequently confirmed in E26. |
+| E26 | observed | Read-only GET of local Nomad `/v1/job/infra%2Fnats` and `/v1/job/infra%2Fnats/versions`, printing only service checks/version/submission fields; incident Loki structuredMetadata.job_version | Current job version 16 and retained versions 11–16 all use `/healthz?js-enabled-only=true`. Incident master-3 allocation logs identify version 14, submitted November 12 02:20:18 UTC, confirming this check was deployed during the incident. Versions 15/16 were submitted November 14 23:34:11/23:34:38 UTC. Check interval 20 s, timeout 10 s, restart limit 3, grace 60 s. Temporary SSH helper exited afterward. |
+| E27 | observed | Additional Mimir disk completion/read/weighted-I/O/discard/flush rates over November 14 17:00–20:10; memory Dirty/Writeback/MemAvailable and swap-out rates over 19:35–19:50 | master-1 write completions fell from about 40/s at 19:41 to 0.8–1.6/s at 19:43–19:48; weighted I/O time implies roughly 14–28 outstanding operations on average. Read completions/throughput were also low. Discard-time rates were zero across inspected hosts/window. master-1 retained over 10 GB available memory, with zero swap-out rate. Dirty pages increased during the stall; these counters do not identify the initiating process or submitted demand. |
+| E28 | observed | Read-only in-memory 10-second `/proc/<pid>/io` delta sample on master-1 around November 17 09:17 UTC, mapped with process comm/cgroup and Docker image listing; `/proc/pressure/io` | Largest observed write-accounting deltas included jbd2 (~815 KB), Consul (~299 KB), containerd-shim (~238 KB), journald (~160 KB) and NATS (~156 KB). This is a current sample, not incident workload reconstruction. Metric discovery found no retained container/process disk-I/O attribution series. No benchmark, tracing installation or background sampler was run. |
+| E29 | observed | Live per-broker GET `/healthz?js-enabled-only=true` versus `/healthz?details=true`, November 17 | Enabled-only returned ok on all brokers; full check reported 33/10/15 consumer errors on masters 1/2/3. Sample reasons: monitor goroutine not running, including experience launch-command consumers. The errors demonstrate a live monitoring blind spot; they do not alone establish active delivery failure. |
+| E30 | observed | Per-broker `/jsz?accounts=true&streams=true&consumers=true`, correlated with locally failing consumer names and host identity | All locally failing consumer copies reported leaders on other hosts; none of those copies reported itself as leader or lacked a leader. No sampled consumer was leaderless. Stream leader master-2 reported both followers current, while follower snapshots disagreed and retained 13 messages versus leader zero at the same last sequence. This supports checking authoritative leader state before treating follower snapshots as a cluster-wide delivery failure. No publication/delivery experiment performed. |
+| E31 | observed | Scoped kernel/service/workload log queries around master-1 19:39–19:49 and master-3 17:15–17:21; repository search for cache/queue tuning | No matching backup/prepull/GC job streams in the selected narrow window; this is not exhaustive absence evidence. master-1 Postgres/repmgr also had connection/election failures during the stall, corroborating broader disruption rather than proving database writes caused it. Proxy health traffic was small in the sampled lines. No responsible workload or tuning change was established. Credentials in database connection log messages are excluded from this report. |
+
+Queries use RFC3339 UTC bounds. Some raw service/kernel messages use Vienna local time; local journal excerpts were subsequently requested with `--utc`. Loki limits and truncated samples are not exhaustive event counts. A query guessed `nats.*` returned no data before discovery established the actual job `infra/nats`; that empty result was not evidence of healthy NATS.
+
+## Findings
+
+The accepted diagnosis is **SATA I/O induced Unity launch failure**, with strong direct evidence from kernel write timeouts and resets, NATS failed syncs/lost quorum, launch-service panics, and application readiness failures. NATS persistence and the OS share the affected local disks. Running Nomad allocations, successful SSH, a healthy NAS, and passing SMART summaries did not establish working disk writes or healthy command delivery.
+
+All three machines exhibit the same queued-write timeout signature on the same hardware/software combination. An SSD/firmware/controller/driver interaction is a hypothesis, not a confirmed NCQ defect. Zero CRC counters weaken a transmission-corruption explanation but do not exclude physical connection or power problems. Free capacity excludes current disk exhaustion; it does not establish historical free space. No direct link between the initial missing-experience list and SATA failures was established.
+
+## Actions and recovery timeline
+
+| Timestamp | Action actually taken | Result | Backup / rollback reference |
+| --- | --- | --- | --- |
+| Before investigation; exact time unknown | Staff checked infrastructure and ran AWX Silica job restart, per user | Selection-list issue reportedly cleared; Unity still failed at that point | Staff action; no agent rollback |
+| Before investigation; exact time/action unknown | User reported service recovered | Recovery accepted as user-reported; final corrective action unknown | Not supplied |
+| 2026-11-17 | Agent restored configured Grafana forwarding, queried retained evidence and inspected masters read-only through approved temporary SSH helpers | Established SATA timeout mechanism and persistent later errors | Each SSH helper closed its own temporary forward; shared Grafana retained |
+| 2026-11-17 | User requested closure based on strong SATA I/O evidence | Investigation closed; component-level uncertainty retained | No production remediation |
+| 2026-11-17 | User resumed diagnosis; agent verified retained Nomad versions, matching NATS source, historical I/O/memory metrics and live full-health/replica state | Corrected sync/timing interpretation; confirmed health-check blind spot; historical initiating workload still unidentified | Read-only checks; temporary SSH helpers exited |
+| 2026-11-17 | User accepted findings/actions as sufficient and requested final completion | Diagnosis closed with follow-up actions documented below | No monitoring deployment, replica repair or hardware change executed |
+
+## Outcome and remaining work
+
+**Diagnosis closed at the user's final request.** Immediate operational cause is strongly supported: SATA write timeouts and failed persistence disrupted JetStream/Raft and launch-service operation. The exact failed component, historical initiating workload and permanent resolution remain unconfirmed. Subsequent write errors mean service recovery must not be represented as storage repair. Findings support a storage-induced service incident, not a proven NATS-volume overload or broker restart-loop trigger.
+
+### Follow-up actions handed off
+
+These are recommendations, not executed changes. Owner and maintenance timing are unassigned.
+
+| Priority | Action | Status / guard |
+| --- | --- | --- |
+| 1 | Add independent full NATS `/healthz?details=true` monitoring and alerts | Proposed; start with sustained-failure alerting, keeping automatic restart and service removal separate; threshold not validated |
+| 2 | Review the observed 33/10/15 consumer-replica errors against authoritative leaders and replica state | Investigation recommended; no active delivery outage proven by the sampled reads; any recovery requires a reviewed serial procedure and quorum checks |
+| 3 | Retain process/container I/O, latency, queue and kernel-error telemetry during a recurrence | Proposed; current passive sample cannot reconstruct the historical initiating workload |
+| 4 | Compare one master with a known-good alternative SSD in an agreed maintenance window | Not-checked; verified recoverable backup, retained original disk and approved rollback required before execution |
+
+All agent-created temporary store SSH helpers completed. Final process/forwarding verification is recorded in the debrief; shared Grafana forwarding remains running. Documentation is saved without commit/push. Hardware substitution, health-policy deployment and replica remediation remain outside the completed diagnostic work.
+
+### Follow-up: why sync, and was the NATS job unstable?
+
+`sync ... input/output error` describes a failed persistent-file flush, not an instruction to transfer the entire dataset. Routine persistence and snapshot/catch-up paths need durable writes. Snapshot installation was attempted near the actual 17:20 failure, but source and repeated reason show that the 18:06 warning can surface the stored earlier Raft write error rather than initiate a new synchronization job.
+
+Nomad lifecycle evidence does not support a broker-main restart loop during the afternoon incident. The broker process remained up while Raft/replication and route connectivity were unhealthy. A short-lived setup task retry at startup is not the NATS server restarting. Enabled-only health configuration can miss failed stream/consumer state. Follow-up live Nomad version history and incident allocation metadata confirm that this setting was deployed in incident job version 14, rather than being only a current-template assumption (E26).
+
+Small state buffers should not be described as having overloaded the disk. The warnings do not measure total I/O demand, and low completed throughput is not offered workload. No evidence establishes excessive synchronization volume as the cause. The operational attribution rests on kernel timeouts/resets and actual failed broker writes, not on the WriteFullState timing alone. The relative contribution of prior route/leader churn, snapshot work and the underlying storage defect remains unisolated.
+
+Upstream references: [Raft write-error handling](https://github.com/nats-io/nats-server/blob/v2.15.2/server/raft.go), [stream health](https://github.com/nats-io/nats-server/blob/v2.15.2/server/jetstream_cluster.go), [health endpoint](https://github.com/nats-io/nats-server/blob/v2.15.2/server/monitor.go), [state preparation and file write](https://github.com/nats-io/nats-server/blob/v2.15.2/server/filestore.go).
+
+### Follow-up: health-check recommendation and high-I/O attribution
+
+Recommended first step: add independent full `/healthz?details=true` monitoring/alerts on each broker, retaining the current narrow restart check initially. A sustained failure threshold such as two minutes is a proposed starting point, not validated here. Do not immediately use the full check to remove brokers from service discovery or attach it to the existing three-failure restart policy: current full checks fail on every broker even though the failing local consumer copies have leaders elsewhere. Removing or restarting every broker could worsen availability. Readiness routing and recovery should be reviewed separately with authoritative leader/quorum state and storage evidence, not triggered solely by one failing follower check.
+
+The issue should be described as high I/O wait / stalled completion, rather than established excessive disk traffic. Counters corroborate a queue accumulating behind very slow writes; they do not prove which workload submitted it. No swap or discard activity in the inspected window explains the event. Current write-cache-disabled state could affect small synchronous-write performance, but its historic state and causal role are unconfirmed. Enabling write cache is not an established repair and was not attempted.
+
+Exact historical per-process attribution is unavailable from the retained metrics. The current passive sample did not reproduce the incident. Distinguishing workload-triggered stalls from SSD/controller/driver malfunction requires process/cgroup I/O telemetry during a recurrence or a controlled maintenance comparison; neither was performed. The three live full-health failures are newly observed follow-up findings, not proof that players currently cannot launch or that the original fault is permanently resolved.
+
+Documentation completion was authorized by the user's request to finish diagnosis. See the [reusable runbook](../runbooks/docs/sata-io-jetstream-launch-failure.md), [launch flow](../platform/docs/flows/unity-launch-command-delivery.md), and [debrief](../debrief/docs/2026-11-17-atwiecol-sata-io-unity-launch.md). No commit/push or external ticket update was performed.
