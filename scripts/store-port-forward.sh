@@ -22,6 +22,7 @@ Starts persistent background kubectl port-forwards for the per-node
 "<store>-socat-nomad-<node>-<hash>" pod (Nomad:4646) and the
 "<store>-socat-shared-<node>" pod (Consul:8500, HTTPS:443, Postgres:5432),
 then prints the local addresses. The forwards remain after this script exits.
+They are detached from the launching terminal and do not reconnect automatically.
 To review and stop forwards, run:
   ${SCRIPT_DIR}/store-port-forward-cleanup.sh
 
@@ -211,6 +212,18 @@ wait_for_port() {
   done
 
   return 1
+}
+
+start_detached_forward() {
+  local log_file=$1
+  shift
+  [[ -x "${SCRIPT_DIR}/../.venv/bin/python" ]] || die "Missing repository-local .venv/bin/python."
+  # A new session survives launcher process-group cleanup; disown alone does not.
+  "${SCRIPT_DIR}/../.venv/bin/python" -c \
+    'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+    "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward \
+    --address 127.0.0.1 "$@" </dev/null >"$log_file" 2>&1 &
+  PF_PID=$!
 }
 
 PROBE_DIR=""
@@ -483,10 +496,7 @@ if ! get_nomad_local_ports; then
   fi
 
   echo "Starting port-forward for pod/${NOMAD_POD} via ${KUBECTL_CONTEXT} on Nomad:${LOCAL_PORT}..." >&2
-  "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward "pod/${NOMAD_POD}" \
-    --address 127.0.0.1 "${LOCAL_PORT}:4646" >"$LOG_FILE" 2>&1 &
-  PF_PID=$!
-  disown "$PF_PID" 2>/dev/null || true
+  start_detached_forward "$LOG_FILE" "pod/${NOMAD_POD}" "${LOCAL_PORT}:4646"
 
   if WAITED=$(wait_for_port "$LOCAL_PORT" "$PF_PID"); then
     echo "Nomad port ready after ${WAITED}s." >&2
@@ -507,12 +517,9 @@ if ! get_shared_local_ports; then
   fi
 
   echo "Starting port-forward for pod/${SHARED_POD} via ${KUBECTL_CONTEXT} on Consul:${CONSUL_PORT}, HTTPS:${HTTPS_PORT}, PG:${PG_PORT}..." >&2
-  "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward "pod/${SHARED_POD}" \
-    --address 127.0.0.1 "${CONSUL_PORT}:8500" \
+  start_detached_forward "$LOG_FILE" "pod/${SHARED_POD}" "${CONSUL_PORT}:8500" \
     "${HTTPS_PORT}:443" \
-    "${PG_PORT}:5432" >"$LOG_FILE" 2>&1 &
-  PF_PID=$!
-  disown "$PF_PID" 2>/dev/null || true
+    "${PG_PORT}:5432"
 
   if WAITED=$(wait_for_port "$CONSUL_PORT" "$PF_PID"); then
     echo "Shared ports ready after ${WAITED}s." >&2
