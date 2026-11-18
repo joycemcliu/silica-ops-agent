@@ -44,7 +44,11 @@ class PersistenceTests(unittest.IsolatedAsyncioTestCase):
         await until(lambda: len(second.bot_client.posts) == 2)
         resumed = FakeCodex.instances[-1]
         self.assertEqual(resumed.resumed_thread, previous.thread_id)
-        self.assertIn("Verify their actual state before retrying", resumed.texts[0])
+        self.assertIn("Verify their actual state before retrying", resumed.instructions)
+        self.assertIn("Replying with debugging findings", resumed.instructions)
+        self.assertIn(f"SILICA_REPO: {self.settings.silica_repo}", resumed.instructions)
+        self.assertNotIn("general assistant", resumed.instructions)
+        self.assertIn("Listener recovery:", resumed.texts[0])
         self.assertIn("User follow-up:\ncontinue", resumed.texts[0])
         self.assertFalse(second.user_client.reads)
         self.assertTrue(previous.closed)
@@ -66,7 +70,8 @@ class PersistenceTests(unittest.IsolatedAsyncioTestCase):
         await until(lambda: len(first.bot_client.posts) == 1)
         original = FakeCodex.instances[-1]
         self.assertIn("general assistant", original.instructions)
-        self.assertNotIn("docs/diagnose_agent", original.instructions)
+        self.assertIn("Format final replies", original.instructions)
+        self.assertNotIn("Replying with debugging findings", original.instructions)
         self.assertEqual(original.texts, ["check spelling"])
         block = first.bot_client.posts[0]["blocks"][0]
         self.assertEqual(block["type"], "rich_text")
