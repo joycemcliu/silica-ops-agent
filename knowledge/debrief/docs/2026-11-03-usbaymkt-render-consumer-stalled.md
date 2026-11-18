@@ -40,8 +40,8 @@ Source: [incident and evidence ledger](../../incidents/2026-11-03-usbaymkt-rende
 
 - [med] [partial] [scripts/store-port-forward-ssh.sh] SSH readiness timed out when kubectl advertised an IPv6 listener but SSH expected IPv4. [E24]\
   Proposal: Make forwarding and readiness checks use the same IPv4 address as SSH, and verify occupied-port and IPv6-only cases without changing pre-existing tunnels.\
-  Status checked: 2026-11-17 — [SSH wrapper](../../../scripts/store-port-forward-ssh.sh) inspection confirms IPv4 probes and SSH destination, and IPv4 binding for node probes; the final SSH forward lacks an explicit bind address. No runtime checks.\
-  Remaining: Align the final forward binding and validate occupied-port/IPv6-only cases while preserving existing tunnels.
+  Status checked: 2026-11-18 — Commit `a9d95a8` makes the final SSH forward bind to `127.0.0.1`. The [regression suite](../../../scripts/tests/test_store_port_forward.py) passed on Linux Bash 5.2 and verified IPv4 bind arguments and reuse of an existing IPv4 forward with test doubles.\
+  Remaining: Validate the occupied-port and IPv6-only listener cases while preserving existing tunnels.
 
 ## Blind spots
 

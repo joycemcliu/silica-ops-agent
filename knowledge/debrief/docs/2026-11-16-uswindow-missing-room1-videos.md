@@ -29,10 +29,10 @@ Elapsed minutes were not recorded; no timing claims are made.
 
 ## Toolkit friction
 
-- [high] [open] [tunnel lifecycle] helpers reported `PROBE_PIDS[@]: unbound variable`; one-shot background forwards also disappeared.
+- [high] [improved] [tunnel lifecycle] helpers reported `PROBE_PIDS[@]: unbound variable`; one-shot background forwards also disappeared.
   Proposal: Add regression coverage for empty-array exit cleanup and a documented persistent-session invocation; report actual connectivity separately from helper exit status (E11).\
-  Status checked: 2026-11-17 — The [forwarding](../../../scripts/store-port-forward.sh) and [SSH](../../../scripts/store-port-forward-ssh.sh) helpers still expand empty `PROBE_PIDS` arrays under `set -u`; no matching regression tests were found under `scripts/tests/`. Repository inspection only.\
-  Remaining: Fix cleanup, document a persistent-session invocation and validate survival/connectivity separately from exit status.
+  Status checked: 2026-11-18 — Commit `a9d95a8` fixes cleanup in both helpers. Commit `de0a7b3` detaches the store forwards and documents the invocation in the [toolkit](../../../docs/diagnose_toolkit.md#prod-stores). The [regression suite](../../../scripts/tests/test_store_port_forward.py) passed on Linux Bash 5.2 with test doubles and loopback connections. It checked launcher exit status and subsequent reachability independently.\
+  Remaining: None for the recorded cleanup and persistence issues.
 
 - [high] [improved] [fragmented evidence] Session evidence required separate task, media and log checks.
   Proposal: Add one read-only session inventory joining status/mode, experience, local-day timestamp, full task map, shared/local media presence and log coverage. Keep unavailable distinct from zero (E25–E27).\
