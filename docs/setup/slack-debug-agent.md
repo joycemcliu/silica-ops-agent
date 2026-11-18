@@ -6,11 +6,11 @@ tags: [slack, codex, diagnosis, macos, ubuntu, systemd, approvals]
 
 # Set up the Slack debug agent
 
-Run one listener for one authorized Slack user and one escalation channel. It reads issues with a user token and communicates only in the bot's private DM thread. It follows the [shared diagnosis workflow](../diagnose_agent.md) and [Slack behavior](../diagnose_agent_in_slack.md), including documentation branches, PR creation, and worktree cleanup.
+Run one listener for one authorized Slack user. The bot handles general conversations in private DM threads. For incident requests, it reads issues from the configured escalation channel with a user token and follows the [shared diagnosis workflow](../diagnose_agent.md) and [Slack behavior](../diagnose_agent_in_slack.md), including documentation branches, PR creation, and worktree cleanup.
 
 ## Prerequisites
 
-- A macOS or Ubuntu host with Python 3.11 or newer, `uv`, Git, GitHub CLI (`gh`), `rtk`, and **Codex CLI 0.169.0**. The listener rejects other Codex versions until the protocol is verified and the pin is updated. systemd deployment is Ubuntu-only.
+- A macOS or Ubuntu host with Python 3.11 or newer, `uv`, Git, GitHub CLI (`gh`), `rtk`, and Codex CLI with a compatible `app-server`. systemd deployment is Ubuntu-only.
 - The repository's shared `.venv/bin/python`, created using the [Python environment guide](setup-python-venv.md). All listener and test commands below use it.
 - A configured root `config.env`. Configure `SILICA_REPO` and `SILICA_ENV_REPO` for this host, using absolute paths or paths relative to this toolkit root. The listener snapshots and resolves these values once; restart after changes. Missing or invalid values stop startup.
 - Existing diagnosis access, including **read-only production credentials**. Do not give this service credentials capable of applying production fixes. The listener removes Slack variables from the Codex child environment. The repo-local `service.env` file is owned by your account: mode `600` protects it from other users, but the agent runs as your account and can read it. Git ignore does not isolate credentials from the agent.
@@ -110,7 +110,7 @@ rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agen
 
 Leave the second command running and DM the bot `help debugging on <issue-permalink>`. Press Ctrl-C to stop it. No systemd service is needed for this test. Do not run a second listener for the same app at the same time.
 
-`--profile diagnose` is a listener option. Codex 0.169.0 does not accept its native `--profile` flag with `app-server`, so the listener reads `<CODEX_HOME>/diagnose.config.toml` once and overlays it through the app-server's thread-start configuration. The existing home supplies base configuration, authentication, and command rules. Use absolute paths for file references in an imported profile, since thread-start overrides do not preserve native profile-file path metadata. The listener does not edit your profile. Its forced sandbox, network, approval, hook, and delegation settings take precedence over profile values. The agent receives the profile's MCP server names so it can use the matching available dev/prod Grafana connections.
+`--profile diagnose` is a listener option. The listener reads `<CODEX_HOME>/diagnose.config.toml` once and overlays it through the app-server's thread configuration. The existing home supplies base configuration, authentication, and command rules. Use absolute paths for file references in an imported profile, since thread overrides do not preserve native profile-file path metadata. The listener does not edit your profile. Its forced sandbox, network, approval, hook, and delegation settings take precedence over profile values. The agent receives the profile's MCP server names so it can use the matching available dev/prod Grafana connections.
 
 Profile reference: [Codex configuration profiles](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles). The adapter's profile overlay and effective sandbox are checked against a real local app-server without starting a model turn.
 
@@ -152,7 +152,7 @@ Short approvals show `Approve? [short-id]`, the command after `$` in a native Sl
 
 ### Findings delivery
 
-Final answers arrive as one formatted message with readable section breaks. The agent is instructed to keep the DM report under 6,000 characters and put extended findings in the diagnosis PR. The listener repairs JSON-encoded report strings and escaped prose newlines, renders headings, bold text, and links for Slack, and preserves code escapes. Reports exceeding 12,000 rendered characters receive a visible shortening notice with retained reference links; ask a follow-up for omitted details. Approval commands remain complete literal text rendered in native Slack code blocks. Restart the listener after updating the code.
+Final answers arrive as one Slack rich-text message with bullets, emphasis, labeled links, and code blocks where useful. The agent is instructed to keep diagnosis reports under 6,000 characters and put extended findings in the diagnosis PR. The listener repairs JSON-encoded report strings and escaped prose newlines and preserves code escapes. Replies exceeding 12,000 characters receive a visible shortening notice and retain reference links within the reply limit. Ask a follow-up for omitted details. Approval commands are rendered in full in native Slack code blocks. Restart the listener after updating the code.
 
 ### Activity feed
 
@@ -190,7 +190,7 @@ Stop the simulation with Ctrl-C. It models reply-to-root resolution, DM report d
 
 Before operational use, test these with the actual configured user and Ubuntu Codex version:
 
-1. Run `.venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --check`. This checks local paths, token prefixes, the dedicated profile, and the pinned Codex version without connecting to Slack. The listener loads the file only when `--env-file` is supplied; systemd uses the unit's `EnvironmentFile` setting instead. A missing service environment is a startup error, not a fallback to interactive credentials.
+1. Run `.venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --check`. This checks local paths, token prefixes, the dedicated profile, and that `codex` is on the service `PATH`, without connecting to Slack. Run the automated local checks above to verify the installed binary's app-server protocol. The listener loads the file only when `--env-file` is supplied; systemd uses the unit's `EnvironmentFile` setting instead. A missing service environment is a startup error, not a fallback to interactive credentials.
 2. Send `help debugging on <issue-permalink>` in a bot DM. Try both a top-level message and a reply permalink, including a reply link without a `thread_ts` query. Confirm that the whole parent thread is read. If Slack rejects a reply-only timestamp, use its full link with `thread_ts`; the listener reports the error rather than silently investigating incomplete evidence.
 3. Ask for a harmless command requiring sandbox escalation. Confirm Codex emits the approval request instead of stalling, the DM shows the complete command, working directory, and reason, and execution waits for **Approve**. Check **Deny**, a ten-minute expiry, and rejection of other users' actions. The known escalation-delivery issue is not established as fixed by the generated schema or mock tests.
 4. Confirm a harmless network command is blocked inside the sandbox and routed to approval when escalated. An approval is one request only; no allowlist or session-wide grant is saved. File approvals require a complete diff; root-wide grants and unsupported permission requests fail closed.
@@ -202,15 +202,19 @@ No live Slack, production diagnosis, remote push/PR, or Ubuntu systemd acceptanc
 
 ## Usage
 
-DM the bot:
+Start a general conversation by sending a top-level DM to the bot, such as `Explain how Slack threads work`. Reply in that message's thread to keep the conversation context. Send another top-level DM to start a separate conversation.
+
+To investigate an issue, send a top-level DM with the escalation message's permalink:
 
 ```text
 help debugging on https://your-workspace.slack.com/archives/CHANNEL_ID/pMESSAGE_TIMESTAMP
 ```
 
-Use replies in that DM thread for follow-up information and **Approve**/**Deny** for sandbox decisions. Ordinary messages never approve commands. The final report includes symptom, suspected cause, evidence, added or updated repository-relative file paths, and a PR URL.
+Shorthand such as `debug <issue-permalink>` also starts an investigation. The bot validates links submitted through these commands. The final diagnosis report includes symptom, suspected cause, evidence, added or updated repository-relative file paths, and a PR URL.
 
-There is no concurrency cap. Each active session gets its own Codex process and runs at most two hours from attachment, including follow-up and idle time. An explicit reply after a restart, failure, or timeout resumes the saved Codex conversation in a new process with a new two-hour window. A session that exceeds the limit reports `failed: timed out after 2h`. Failed processes are closed; reply in the same thread to resume saved context, or send a new top-level request for a separate conversation. The user-token client only reads threads; the bot client only writes to DM IDs. File contents and arbitrary attachment URLs are not downloaded.
+In either kind of thread, use **Approve** or **Deny** for sandbox decisions. The listener applies the same Codex profile and approval policy to both kinds of conversation. Ordinary messages never approve commands.
+
+There is no concurrency cap. Each active session gets its own Codex process and runs at most two hours from attachment, including follow-up and idle time. An explicit reply after a restart, failure, or timeout resumes the saved Codex conversation in a new process with a new two-hour window. A session that exceeds the limit reports `failed: timed out after 2h`. The listener uses the user-token client to read issue threads and the bot client to reply in private DMs. It does not download attachments.
 
 ## Troubleshooting
 

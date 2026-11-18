@@ -3,7 +3,6 @@
 import os
 import re
 import shutil
-import subprocess
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,9 +10,13 @@ from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
 
-CODEX_VERSION = "0.169.0"
 APPROVAL_SECONDS = 600
 SESSION_SECONDS = 7200
+DEBUG_COMMAND = re.compile(
+    r"(?:help\s+)?(?:debugging|debug|checking|check|investigating)(?:\s+on)?\s+"
+    r"(?:<([^>|]+)(?:\|[^>]+)?>|(\S+))\s*",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -95,13 +98,6 @@ class Config:
         codex = shutil.which("codex")
         if not codex:
             raise ValueError("codex is not on the service PATH.")
-        version = subprocess.run(
-            [codex, "--version"], capture_output=True, text=True, check=True
-        ).stdout.strip()
-        if version != f"codex-cli {CODEX_VERSION}":
-            raise ValueError(
-                f"Expected codex-cli {CODEX_VERSION}; verify the protocol before upgrading."
-            )
         tokens = [
             required(name) for name in ("SLACK_BOT_TOKEN", "SLACK_USER_TOKEN", "SLACK_APP_TOKEN")
         ]
@@ -123,13 +119,15 @@ class Config:
         return env
 
 
+def is_debug_request(text: str) -> bool:
+    if re.match(r"help\s+debugging\s+on\b", text, re.IGNORECASE):
+        return True
+    match = DEBUG_COMMAND.fullmatch(text)
+    return bool(match and "://" in (match.group(1) or match.group(2)))
+
+
 def parse_permalink(text: str, config: Config):
-    match = re.fullmatch(
-        r"(?:help\s+)?(?:debugging|debug|checking|check|investigating)(?:\s+on)?\s+"
-        r"(?:<([^>|]+)(?:\|[^>]+)?>|(\S+))\s*",
-        text.strip(),
-        re.IGNORECASE,
-    )
+    match = DEBUG_COMMAND.fullmatch(text.strip())
     if not match:
         raise ValueError("use: help debugging on <issue-permalink>")
     url = match.group(1) or match.group(2)

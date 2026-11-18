@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from test_agent import Slack, config
+from test_agent import URL, Slack, config
 
 from slack_debug.app import Manager, Session
 from slack_debug.reports import REPORT_LIMIT, format_report, report_blocks, split_text
@@ -11,7 +11,7 @@ class ReportTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.bot = Slack()
         self.manager = Manager(config(), self.bot, Slack())
-        self.session = Session(self.manager, "D123", "thread", "", "")
+        self.session = Session(self.manager, "D123", "thread", URL, "1794800000.000001")
 
     def test_escaped_newlines_json_and_code(self):
         self.assertEqual(format_report(r"Symptom: broken\nEvidence: timeout"),
@@ -21,14 +21,34 @@ class ReportTests(unittest.IsolatedAsyncioTestCase):
         code = r"`printf '\n'`" + "\n```sh\nprintf '\\n'\n```"
         self.assertEqual(format_report(code), code)
 
-    def test_slack_formatting_and_mentions(self):
-        rendered = format_report(
-            "## Findings\n**Cause:** timeout\n[PR](https://example.test/pull/1)\n"
+    async def test_slack_formatting_and_mentions(self):
+        await self.manager.report(self.session, (
+            "## 🔎 Findings\n- **Cause:** timeout _likely_\n- <u>Check retries</u>\n"
+            "[PR](https://example.test/pull/1?a=1&b=2)\n"
             "<!channel> <@U123> & <script>\n`**literal**`"
-        )
-        self.assertEqual(rendered,
-                         "*Findings*\n*Cause:* timeout\n<https://example.test/pull/1|PR>\n"
-                         "&lt;!channel&gt; &lt;@U123&gt; &amp; &lt;script&gt;\n`**literal**`")
+        ))
+        post = self.bot.posts[0]
+        heading, bullets, details = post["blocks"][0]["elements"]
+        self.assertEqual(heading["elements"][0], {
+            "type": "text", "text": "🔎 Findings", "style": {"bold": True},
+        })
+        self.assertEqual((bullets["type"], bullets["style"]), ("rich_text_list", "bullet"))
+        cause, next_step = [item["elements"] for item in bullets["elements"]]
+        self.assertEqual(cause, [
+            {"type": "text", "text": "Cause:", "style": {"bold": True}},
+            {"type": "text", "text": " timeout "},
+            {"type": "text", "text": "likely", "style": {"italic": True}},
+        ])
+        self.assertEqual(next_step, [
+            {"type": "text", "text": "Check retries", "style": {"underline": True}},
+        ])
+        self.assertEqual(details["elements"], [
+            {"type": "link", "text": "PR", "url": "https://example.test/pull/1?a=1&b=2"},
+            {"type": "text", "text": "\n<!channel> <@U123> & <script>\n"},
+            {"type": "text", "text": "**literal**", "style": {"code": True}},
+        ])
+        self.assertFalse(post["mrkdwn"])
+        self.assertIn("&lt;!channel&gt; &lt;@U123&gt;", post["text"])
 
     def test_split_preserves_text_and_sentence_boundaries(self):
         text = "A complete sentence. " * 500
@@ -37,16 +57,15 @@ class ReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(len(chunk) <= 2800 for chunk in chunks))
         self.assertTrue(all(chunk.endswith(". ") for chunk in chunks[:-1]))
 
-    async def test_report_uses_one_message_and_multiple_blocks(self):
+    async def test_report_uses_one_message_for_long_prose(self):
         text = "Evidence: a complete sentence.\n" * 200
         await self.manager.report(self.session, text)
         self.assertEqual(len(self.bot.posts), 1)
         post = self.bot.posts[0]
         self.assertEqual(post["thread_ts"], "thread")
-        self.assertGreater(len(post["blocks"]), 1)
-        self.assertTrue(all(len(block["text"]["text"]) <= 3000 for block in post["blocks"]))
-        self.assertEqual("".join(b["text"]["text"] for b in post["blocks"]), text.strip())
-        self.assertTrue(all(b["text"]["verbatim"] for b in post["blocks"]))
+        self.assertEqual(post["blocks"], [{"type": "rich_text", "elements": [{
+            "type": "rich_text_section", "elements": [{"type": "text", "text": text.strip()}],
+        }]}])
 
     async def test_sixty_message_report_is_bounded_and_keeps_pr(self):
         text = "Evidence: a complete finding.\n" * 6000 + "PR: https://example.test/pull/42"
@@ -58,16 +77,25 @@ class ReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("https://example.test/pull/42", post["text"])
         self.assertLess(len(post["blocks"]), 10)
 
-    def test_code_fences_remain_balanced_across_blocks(self):
-        blocks = report_blocks("```\n" + "some output\n" * 500 + "```\nDone.")
-        self.assertGreater(len(blocks), 1)
-        self.assertTrue(all(b["text"]["text"].count("```") % 2 == 0 for b in blocks))
+    def test_fenced_code_is_preformatted_and_keeps_literal_content(self):
+        code = "    **some output** & <@U123>\n" * 300 + "    ```\n"
+        blocks = report_blocks(f"```sh\n{code}```\nDone.")
+        self.assertEqual(blocks[0]["elements"], [
+            {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code}]},
+            {"type": "rich_text_section", "elements": [{"type": "text", "text": "Done."}]},
+        ])
 
     def test_shortening_closes_code_before_notice(self):
         text = format_report("```\n" + "long code line\n" * 2000 + "```")
         self.assertLessEqual(len(text), REPORT_LIMIT)
         before_notice = text.split("_Report shortened")[0]
         self.assertEqual(before_notice.count("```") % 2, 0)
+
+    def test_shortened_chat_reply_uses_a_general_notice(self):
+        text = format_report("An example answer. " * 1000, diagnosis=False)
+        self.assertLessEqual(len(text), REPORT_LIMIT)
+        self.assertIn("Response shortened for Slack", text)
+        self.assertNotIn("diagnosis PR", text)
 
     async def test_approvals_keep_all_characters_and_literal_escapes(self):
         text = r"printf '\n' " * 800

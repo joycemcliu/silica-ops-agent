@@ -12,7 +12,6 @@ from pathlib import Path
 from test_agent import config
 
 from slack_debug.codex import Codex
-from slack_debug.config import CODEX_VERSION
 
 
 class InstalledProtocolTests(unittest.TestCase):
@@ -124,8 +123,6 @@ class InstalledProtocolTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("codex"), "Codex CLI not installed")
     def test_installed_schema_contract(self):
-        version = subprocess.run(["codex", "--version"], capture_output=True, text=True, check=True)
-        self.assertEqual(version.stdout.strip(), "codex-cli " + CODEX_VERSION)
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(
                 ["codex", "app-server", "generate-json-schema", "--out", directory],

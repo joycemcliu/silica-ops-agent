@@ -1,4 +1,4 @@
-"""Small JSON-lines client for the pinned Codex app-server protocol."""
+"""Small JSON-lines client for Codex app-server."""
 
 import asyncio
 import contextlib
@@ -60,8 +60,7 @@ class Codex:
             "initialize", {"clientInfo": {"name": "silica_slack_debug", "version": "0.1.0"}}
         )
         await self.send({"method": "initialized", "params": {}})
-        # App-server 0.169.0 rejects the native --profile flag. Apply the parsed
-        # profile through thread/start config, which overlays the base home config.
+        # Apply the profile through the thread configuration to overlay the base home config.
         overrides = {
             **self.config.profile_config,
             "approval_policy": "on-request",

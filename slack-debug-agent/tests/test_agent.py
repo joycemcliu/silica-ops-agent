@@ -161,10 +161,9 @@ class ConfigTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, env),
                 patch("shutil.which", return_value="/test/codex"),
-                patch("subprocess.run") as run,
             ):
-                run.return_value.stdout = "codex-cli 0.169.0\n"
                 loaded = Config.load(toolkit)
+                self.assertEqual(loaded.codex_bin, "/test/codex")
                 self.assertEqual(loaded.activity_mode, "summary")
                 with patch.dict(os.environ, {"SLACK_DEBUG_ACTIVITY": "off"}):
                     self.assertEqual(Config.load(toolkit).activity_mode, "off")

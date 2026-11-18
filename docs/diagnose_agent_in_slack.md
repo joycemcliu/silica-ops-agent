@@ -1,6 +1,6 @@
 # Diagnose Agent in Slack
 
-Follow [Diagnose Agent](diagnose_agent.md) for the diagnosis workflow, toolkit, and knowledge authoring. This document adds behavior for sessions started by the Slack debug listener; it does not apply to ordinary interactive diagnosis sessions.
+Follow [Diagnose Agent](diagnose_agent.md) for the diagnosis workflow, toolkit, and knowledge authoring. This document adds behavior for incident investigations started by a Slack debug command.
 
 ## Session context and communication
 
@@ -28,18 +28,20 @@ Follow [Diagnose Agent](diagnose_agent.md) for the diagnosis workflow, toolkit, 
 2. Report success only after finalization succeeds. If no documentation changed, state that no commit or PR was needed.
 3. Reply in the same DM thread using this format:
 
-   ```text
-   finished debugging
-   Symptom: <brief summary>
-   Suspected cause: <cause and remaining uncertainty>
-   Evidence: <observations supporting the findings; distinguish inferences>
-   Added files: <repository-relative runbook, incident, and debrief paths>
-   PR: <pull request URL, or no documentation changes>
+   ```markdown
+   ✅ **finished debugging**
+
+   - **Symptom:** <brief summary>
+   - **Suspected cause:** <cause and remaining uncertainty>
+   - **Evidence:** <observations supporting the findings>
+   - **Files:** <repository-relative paths in inline code>
+   - **PR:** [Review the diagnosis](https://...) or state that there were no documentation changes.
+   - **Next step:** <recommended action, when relevant>
    ```
 
    Keep the DM report under 6,000 characters, using real newlines, brief paragraphs, and bullets. Do not JSON-encode the response or write literal `\n` separators. Put detailed logs, command transcripts, and extended evidence in the diagnosis documentation and link the PR. Include updated files alongside added files. Use the PR for review; the completed documentation worktree has been removed. Include recommended next steps and any removals or unchecked claims required by the authoring rules.
 
-   The listener delivers findings as one formatted Slack message with section blocks split at readable boundaries. Reports above 12,000 rendered characters are shortened with an explicit notice and reference links; ask a follow-up for omitted details. Approval commands remain complete and unmodified.
+   Use italics for uncertainty and underline only a critical action. Fence short command or log excerpts when they help explain the finding. The listener delivers findings as one Slack rich-text message. Replies above 12,000 characters are shortened with a visible notice and reference links. Ask a follow-up for omitted details.
 
 ## Failure and session lifecycle
 

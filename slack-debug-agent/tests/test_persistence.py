@@ -51,6 +51,45 @@ class PersistenceTests(unittest.IsolatedAsyncioTestCase):
         saved = second.store.find("D123", event()["ts"])
         self.assertEqual(saved["codex_thread"], previous.thread_id)
 
+    async def test_plain_dm_starts_chat_and_thread_replies_resume_it(self):
+        class ChatCodex(FakeCodex):
+            async def turn(self, text):
+                self.texts.append(text)
+                return "Here is a **chat reply**."
+
+        first = self.manager()
+        first.codex_factory = ChatCodex
+        message = event("check spelling")
+        thread = message["ts"]
+        await first.message(message, "chat")
+        await until(lambda: len(first.bot_client.posts) == 1)
+        original = FakeCodex.instances[-1]
+        self.assertIn("general assistant", original.instructions)
+        self.assertNotIn("docs/diagnose_agent", original.instructions)
+        self.assertEqual(original.texts, ["check spelling"])
+        block = first.bot_client.posts[0]["blocks"][0]
+        self.assertEqual(block["type"], "rich_text")
+        self.assertIn({"type": "text", "text": "chat reply", "style": {"bold": True}},
+                      block["elements"][0]["elements"])
+        self.assertFalse(first.user_client.reads)
+
+        await first.message(event("Use UK spelling.", thread_ts=thread), "chat-followup")
+        await until(lambda: len(first.bot_client.posts) == 2)
+        self.assertEqual(original.texts[-1], "Use UK spelling.")
+        await first.close()
+
+        second = self.manager()
+        second.codex_factory = ChatCodex
+        await second.message(event("Please continue.", thread_ts=thread), "chat-resume")
+        await until(lambda: len(second.bot_client.posts) == 2)
+        resumed = FakeCodex.instances[-1]
+        self.assertEqual(resumed.resumed_thread, original.thread_id)
+        self.assertEqual(resumed.instructions, original.instructions)
+        self.assertIn("User follow-up:\nPlease continue.", resumed.texts[0])
+        self.assertFalse(second.user_client.reads)
+        self.assertTrue(all(p["thread_ts"] == thread for p in
+                            first.bot_client.posts + second.bot_client.posts))
+
     async def test_duplicate_messages_stay_deduplicated_across_restart(self):
         first = self.manager()
         await first.message(event(), "initial")
