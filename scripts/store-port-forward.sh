@@ -22,6 +22,7 @@ Starts persistent background kubectl port-forwards for the per-node
 "<store>-socat-nomad-<node>-<hash>" pod (Nomad:4646) and the
 "<store>-socat-shared-<node>" pod (Consul:8500, HTTPS:443, Postgres:5432),
 then prints the local addresses. The forwards remain after this script exits.
+They are detached from the launching terminal and retry disconnects every 3 seconds.
 To review and stop forwards, run:
   ${SCRIPT_DIR}/store-port-forward-cleanup.sh
 
@@ -163,10 +164,12 @@ find_existing_pod_port_forward_pid() {
     cmd=${line#* }
 
     [[ "$cmd" == *"port-forward"* ]] || continue
-    [[ "$cmd" == *"--context ${KUBECTL_CONTEXT}"* || "$cmd" == *"--context=${KUBECTL_CONTEXT}"* ]] || continue
+    if [[ "$cmd" != *"store-port-forward.sh --reconnect ${KUBECTL_CONTEXT} ${NS} "* ]]; then
+      [[ "$cmd" == *"--context ${KUBECTL_CONTEXT}"* || "$cmd" == *"--context=${KUBECTL_CONTEXT}"* ]] || continue
+      [[ "$cmd" == *" -n ${NS} "* || "$cmd" == *" --namespace ${NS} "* || "$cmd" == *" --namespace=${NS} "* ]] || continue
+    fi
     [[ "$cmd" == *"pod/${pod_name}"* ]] || continue
     [[ "$cmd" == *":${remote_port}"* ]] || continue
-    [[ "$cmd" == *" -n ${NS} "* || "$cmd" == *" --namespace ${NS} "* || "$cmd" == *" --namespace=${NS} "* ]] || continue
 
     printf '%s\n' "$pid"
     return 0
@@ -213,16 +216,67 @@ wait_for_port() {
   return 1
 }
 
+start_detached_forward() {
+  local log_file=$1
+  shift
+  [[ -x "${SCRIPT_DIR}/../.venv/bin/python" ]] || die "Missing repository-local .venv/bin/python."
+  # A new session survives launcher process-group cleanup; disown alone does not.
+  "${SCRIPT_DIR}/../.venv/bin/python" -c \
+    'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+    bash "${SCRIPT_DIR}/store-port-forward.sh" --reconnect \
+    "$KUBECTL_CONTEXT" "$NS" "$KUBECTL_BIN" "$@" </dev/null >"$log_file" 2>&1 &
+  PF_PID=$!
+}
+
+# Internal worker: its command line also identifies the tunnel during retry waits.
+if [[ "${1:-}" == --reconnect ]]; then
+  KUBECTL_CONTEXT=$2 NS=$3 KUBECTL_BIN=$4
+  TARGET=$5
+  shift 5
+  CHILD=""
+  stop_forward() {
+    if [[ -n "$CHILD" ]]; then
+      kill "$CHILD" 2>/dev/null || true
+      wait "$CHILD" 2>/dev/null || true
+    fi
+  }
+  trap stop_forward EXIT
+  trap 'exit 0' INT TERM HUP
+  while true; do
+    POD=$TARGET
+    # Nomad pods have changing hash suffixes; rediscover after every disconnect.
+    if [[ "$TARGET" == *-socat-nomad-*- ]]; then
+      POD=$("$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" get pods -o name \
+        | awk -v prefix="$TARGET" 'index($0, prefix) == 1 { print; exit }') || POD=""
+    fi
+    if [[ -n "$POD" ]]; then
+      "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward \
+        --address 127.0.0.1 "$POD" "$@" &
+      CHILD=$!
+      wait "$CHILD" || true
+      CHILD=""
+    fi
+    echo "Forward for ${TARGET} disconnected or unavailable; retrying in 3 seconds."
+    sleep 3 &
+    CHILD=$!
+    wait "$CHILD" || true
+    CHILD=""
+  done
+fi
+
 PROBE_DIR=""
 PROBE_PIDS=()
 cleanup_node_probes() {
   local probe_pid
-  for probe_pid in "${PROBE_PIDS[@]}"; do
-    kill "$probe_pid" 2>/dev/null || true
-  done
-  for probe_pid in "${PROBE_PIDS[@]}"; do
-    wait "$probe_pid" 2>/dev/null || true
-  done
+  # Bash 3.2 treats an empty array expansion as unset under nounset.
+  if (( ${#PROBE_PIDS[@]} )); then
+    for probe_pid in "${PROBE_PIDS[@]}"; do
+      kill "$probe_pid" 2>/dev/null || true
+    done
+    for probe_pid in "${PROBE_PIDS[@]}"; do
+      wait "$probe_pid" 2>/dev/null || true
+    done
+  fi
   PROBE_PIDS=()
   if [[ -n "$PROBE_DIR" ]]; then
     rm -rf -- "$PROBE_DIR"
@@ -451,7 +505,7 @@ mkdir -p "$LOG_DIR"
 
 get_nomad_local_ports() {
   local existing_pid existing_cmd found
-  existing_pid=$(find_existing_pod_port_forward_pid "$NOMAD_POD" 4646 || true)
+  existing_pid=$(find_existing_pod_port_forward_pid "${STORE_DOMAIN}-socat-nomad-${NODE}-" 4646 || true)
   [[ -n "$existing_pid" ]] || return 1
   existing_cmd=$(ps -p "$existing_pid" -o args= 2>/dev/null || true)
   found=$(extract_forwarded_port "$existing_cmd" 4646)
@@ -480,15 +534,14 @@ if ! get_nomad_local_ports; then
   fi
 
   echo "Starting port-forward for pod/${NOMAD_POD} via ${KUBECTL_CONTEXT} on Nomad:${LOCAL_PORT}..." >&2
-  "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward "pod/${NOMAD_POD}" \
-    "${LOCAL_PORT}:4646" >"$LOG_FILE" 2>&1 &
-  PF_PID=$!
-  disown "$PF_PID" 2>/dev/null || true
+  start_detached_forward "$LOG_FILE" "pod/${STORE_DOMAIN}-socat-nomad-${NODE}-" "${LOCAL_PORT}:4646"
 
   if WAITED=$(wait_for_port "$LOCAL_PORT" "$PF_PID"); then
     echo "Nomad port ready after ${WAITED}s." >&2
   else
     STATUS=$?
+    kill "$PF_PID" 2>/dev/null || true
+    wait "$PF_PID" 2>/dev/null || true
     echo "ERROR: Nomad port ${LOCAL_PORT} did not become ready." >&2
     [[ $STATUS -eq 2 ]] && echo "kubectl port-forward exited early." >&2
     echo "kubectl log: ${LOG_FILE}" >&2
@@ -504,17 +557,16 @@ if ! get_shared_local_ports; then
   fi
 
   echo "Starting port-forward for pod/${SHARED_POD} via ${KUBECTL_CONTEXT} on Consul:${CONSUL_PORT}, HTTPS:${HTTPS_PORT}, PG:${PG_PORT}..." >&2
-  "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward "pod/${SHARED_POD}" \
-    "${CONSUL_PORT}:8500" \
+  start_detached_forward "$LOG_FILE" "pod/${SHARED_POD}" "${CONSUL_PORT}:8500" \
     "${HTTPS_PORT}:443" \
-    "${PG_PORT}:5432" >"$LOG_FILE" 2>&1 &
-  PF_PID=$!
-  disown "$PF_PID" 2>/dev/null || true
+    "${PG_PORT}:5432"
 
   if WAITED=$(wait_for_port "$CONSUL_PORT" "$PF_PID"); then
     echo "Shared ports ready after ${WAITED}s." >&2
   else
     STATUS=$?
+    kill "$PF_PID" 2>/dev/null || true
+    wait "$PF_PID" 2>/dev/null || true
     echo "ERROR: Consul port ${CONSUL_PORT} did not become ready." >&2
     [[ $STATUS -eq 2 ]] && echo "kubectl port-forward exited early." >&2
     echo "kubectl log: ${LOG_FILE}" >&2

@@ -378,7 +378,7 @@ else
 
   info "Starting SSH port-forward to ${PORT_FORWARD_TARGET} on port ${SSH_PORT}(ssh)..."
   kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward "$PORT_FORWARD_TARGET" \
-    "${SSH_PORT}:${REMOTE_SSH_PORT}" >"$LOG_FILE" 2>&1 &
+    --address 127.0.0.1 "${SSH_PORT}:${REMOTE_SSH_PORT}" >"$LOG_FILE" 2>&1 &
   PORT_FORWARD_PID=$!
   CREATED_PORT_FORWARD_PID="$PORT_FORWARD_PID"
   wait_for_ssh_port "$SSH_PORT" "$PORT_FORWARD_PID" "$LOG_FILE"

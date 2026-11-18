@@ -6,7 +6,7 @@ tags: [python, venv, uv, winrm, setup]
 
 # Set up the repo-local Python environment
 
-This guide sets up the [repository's Python environment](../../AGENTS.md#shared-python-environment) for all Python commands and tools, including development and diagnosis. Reuse `.venv` in this repository across tasks and sessions. macOS Grafana MCP forwarding uses this interpreter to detach its supervisor.
+This guide sets up the [repository's Python environment](../../AGENTS.md#shared-python-environment) for all Python commands and tools, including development and diagnosis. Reuse `.venv` in this repository across tasks and sessions. Store port-forwarding on macOS/Linux and Grafana MCP forwarding on macOS use this interpreter to detach their background processes; detachment uses only Python's standard library.
 
 ## Prerequisites
 

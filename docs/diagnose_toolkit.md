@@ -23,8 +23,8 @@ Ports: Nomad `4646`, Consul `8500`, PostgreSQL `5432`, and platform web access `
 
 ### Prod stores
 
-- Use `scripts/store-port-forward.sh` to access Nomad, Consul, the platform HTTPS API, and PostgreSQL. Use the local addresses printed by the script.
-- Use `scripts/store-port-forward-ssh.sh` to run approved commands on the store cluster's master node.
+- Use `scripts/store-port-forward.sh` to access Nomad, Consul, the platform HTTPS API, and PostgreSQL. Use the local addresses printed by the script. These forwards detach from the launching session, so no held terminal is required. They retry every 3 seconds after kubectl exits and rediscover replacement Nomad pods. Use the cleanup script to stop both forwarding and retries. Existing client connections may need to reconnect.
+- Use `scripts/store-port-forward-ssh.sh` to run approved commands on the store cluster's master node. Forwards created by this helper last only for the SSH command or session; reused forwards are left running. The same lifetime rule applies to `scripts/store-sshuttle.sh` and its sshuttle command.
 - Use `scripts/store-port-forward-cleanup.sh` when finished. Close only tunnels opened for this session.
 
 ### Discover PCs and their roles
