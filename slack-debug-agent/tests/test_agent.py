@@ -4,11 +4,11 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from slack_debug.__main__ import protect_listener
 from slack_debug.app import Manager, Session, read_issue
-from slack_debug.codex import Codex
+from slack_debug.codex import ApprovalPaused, Codex
 from slack_debug.config import Config, parse_permalink
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -326,11 +326,13 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(b["type"] == "actions" for b in self.bot.updates[-1]["blocks"]))
         await self.manager.action(body)  # A replay cannot approve another command.
 
-    async def test_approval_timeout_denies(self):
+    async def test_approval_timeout_expires_the_buttons_and_pauses(self):
         session = Session(self.manager, "D123", "thread", URL, "")
-        with patch("slack_debug.app.APPROVAL_SECONDS", 0.01):
-            result = await self.manager.approve(session, {"command": "test", "cwd": "/"})
-        self.assertEqual(result, "decline")
+        with patch("slack_debug.app.APPROVAL_SECONDS", 0.01), self.assertRaises(ApprovalPaused):
+            await self.manager.approve(session, {"command": "test", "cwd": "/"})
+        self.assertFalse(self.manager.approvals)
+        self.assertIn("expired without a response", self.bot.updates[-1]["text"])
+        self.assertFalse(any(b["type"] == "actions" for b in self.bot.updates[-1]["blocks"]))
 
     async def test_explicit_denial_and_stale_click(self):
         session = Session(self.manager, "D123", "thread", URL, "")
@@ -350,6 +352,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         }
         await self.manager.action(body)
         self.assertEqual(await task, "decline")
+        self.assertTrue(self.bot.updates[-1]["text"].endswith("\nDenied."))
 
     async def test_unreviewable_requests_fail_closed_and_questions_continue(self):
         session = Session(self.manager, "D123", "thread", URL, "")
@@ -405,6 +408,18 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pause_exits_the_turn_without_sending_an_approval_response(self):
+        client = Codex(config(), AsyncMock(side_effect=ApprovalPaused))
+        client.thread_id = "thread-1"
+        with (
+            patch.object(client, "call", AsyncMock(return_value={"turn": {"id": "turn-1"}})),
+            patch.object(client, "send", AsyncMock()) as send,
+        ):
+            await client._answer({"id": "approval-1", "method": "item/commandExecution/requestApproval"})
+            with self.assertRaises(ApprovalPaused):
+                await client.turn("investigate")
+            send.assert_not_awaited()
+
     async def test_real_subprocess_handshake_approval_and_shutdown(self):
         # A wire peer exercises JSON framing and asynchronous bidirectional requests,
         # without using credentials or invoking a model.

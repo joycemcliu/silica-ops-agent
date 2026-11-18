@@ -5,6 +5,7 @@ from unittest.mock import patch
 from test_agent import Slack, config, until
 
 from slack_debug.app import Manager, Session, approval_blocks, approval_text, display_command
+from slack_debug.codex import ApprovalPaused
 
 
 class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
@@ -25,10 +26,10 @@ class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
         manager = Manager(config(), bot, Slack())
         session = Session(manager, "D123", "thread", "", "")
         command = "python - <<'PY'\n" + "print('line')\n" * 4000 + "PY"
-        with patch("slack_debug.app.APPROVAL_SECONDS", 0.02):
-            self.assertEqual(await manager.approve(session, {
+        with patch("slack_debug.app.APPROVAL_SECONDS", 0.02), self.assertRaises(ApprovalPaused):
+            await manager.approve(session, {
                 "command": command, "cwd": "/tmp", "reason": "Inspect",
-            }), "decline")
+            })
         self.assertGreater(len(bot.posts), 1)
         rendered = "".join(b["elements"][0]["elements"][0]["text"]
                            for p in bot.posts for b in p["blocks"] if b["type"] == "rich_text")
@@ -55,7 +56,7 @@ class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
             "proposedExecpolicyAmendment": ["git"], "availableDecisions": ["accept"],
         }
         self.assertEqual(approval_text("12345678abcdef", params, root),
-                         "Approve? [12345678] (denies in 10 min)\n"
+                         "Approve? [12345678] (session pauses after 10 min without a response)\n"
                          "$ git status\nin docs\nwhy: Check checkout")
         params["networkPermissions"] = {"host": "example.test"}
         self.assertIn('"networkPermissions":{"host":"example.test"}',

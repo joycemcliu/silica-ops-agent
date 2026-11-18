@@ -7,6 +7,10 @@ import os
 import signal
 
 
+class ApprovalPaused(Exception):
+    """End the active turn without sending an approval decision."""
+
+
 class Codex:
     def __init__(self, config, on_request, on_notification=None):
         self.config = config
@@ -123,6 +127,8 @@ class Codex:
             await self.send({"id": message["id"], "result": result})
         except asyncio.CancelledError:
             raise
+        except ApprovalPaused:
+            await self.events.put({"method": "client/approvalPaused"})
         except Exception as error:
             with contextlib.suppress(ConnectionError):
                 await self.send(
@@ -204,6 +210,8 @@ class Codex:
         while True:
             message = await self.events.get()
             method, params = message["method"], message.get("params", {})
+            if method == "client/approvalPaused":
+                raise ApprovalPaused
             if method == "client/failure":
                 raise RuntimeError(params["reason"])
             if method == "error" and not params.get("willRetry", False):

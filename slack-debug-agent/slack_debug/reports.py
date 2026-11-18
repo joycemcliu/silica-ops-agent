@@ -4,6 +4,8 @@ import json
 import re
 from itertools import groupby
 
+from .permalinks import link_file_references
+
 REPORT_LIMIT = 12000
 BLOCK_LIMIT = 2800
 CODE = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
@@ -36,7 +38,7 @@ def split_text(text, limit=BLOCK_LIMIT):
         yield text
 
 
-def format_report(text, *, diagnosis=True):
+async def format_report(text, *, diagnosis=True, source_roots=()):
     # Some responses arrive as a JSON string embedded in the protocol's text field.
     if text.strip().startswith('"'):
         try:
@@ -52,6 +54,8 @@ def format_report(text, *, diagnosis=True):
             # Decode prose line separators only, never shell/code escapes or Unicode.
             parts[index] = re.sub(r"(?<!\\)\\r\\n|(?<!\\)\\n", "\n", part)
     text = "".join(parts).strip()
+    if source_roots:
+        text = await link_file_references(text, source_roots)
     if len(text) > REPORT_LIMIT:
         # Keep reference links even when the model ignores the concise-report rule.
         urls = dict.fromkeys(re.findall(URL, text))

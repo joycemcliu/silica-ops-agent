@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from slack_sdk.errors import SlackApiError
 
-from .codex import Codex
+from .codex import ApprovalPaused, Codex
 from .config import APPROVAL_SECONDS, SESSION_SECONDS, is_debug_request, parse_permalink
 from .elicitation import elicit
 from .reports import format_report, report_blocks, split_text
@@ -30,6 +30,7 @@ REPLY_FORMAT = (
     "Use <u>underline</u> sparingly for a critical action and one or two relevant Unicode emoji "
     "for status when helpful. Use inline `code` for identifiers, fenced code blocks for "
     "multiline commands or logs, and [descriptive labels](https://...) for real links. "
+    "Cite source files as [label](repository/path.ext:line) when you have a local path. "
     "Keep simple answers short. "
 )
 
@@ -53,7 +54,7 @@ def display_cwd(cwd: str, root: Path) -> str:
 
 
 def approval_text(key: str, params: dict, root: Path) -> str:
-    lines = [f"Approve? [{key[:8]}] (denies in 10 min)"]
+    lines = [f"Approve? [{key[:8]}] (session pauses after 10 min without a response)"]
     if params.get("command"):
         lines.append("$ " + display_command(params["command"]))
         lines.append("in " + display_cwd(params.get("cwd", "?"), root))
@@ -64,6 +65,10 @@ def approval_text(key: str, params: dict, root: Path) -> str:
     return "\n".join(lines)
 
 
+def preformatted(text):
+    return {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": text}]}
+
+
 def approval_blocks(key, params, root):
     header, details = approval_text(key, {**params, "command": None}, root).split("\n", 1)
     blocks = [{"type": "section", "text": {
@@ -72,10 +77,7 @@ def approval_blocks(key, params, root):
     if params.get("command"):
         for chunk in split_text("$ " + display_command(params["command"])):
             # Native preformatted text preserves indentation and literal backticks.
-            blocks.append({"type": "rich_text", "elements": [{
-                "type": "rich_text_preformatted",
-                "elements": [{"type": "text", "text": chunk}],
-            }]})
+            blocks.append({"type": "rich_text", "elements": [preformatted(chunk)]})
         details = "in " + display_cwd(params.get("cwd", "?"), root) + "\n" + details
     blocks.extend({"type": "section", "text": {
         "type": "plain_text", "text": chunk, "emoji": False,
@@ -99,63 +101,87 @@ def safe_error(error):
     return str(error) if isinstance(error, (ValueError, RuntimeError)) else type(error).__name__
 
 
-def activity_blocks(text):
-    """Give activity lines explicit Slack sections instead of inline separators."""
-    lines = [line for line in text.splitlines() if line.strip()]
-    # Keep well below Slack's block limit even for many very short commands.
-    if len(lines) > 20:
-        lines = ["Earlier activity omitted…", *lines[-19:]]
-    return [{
-        "type": "section",
-        "text": {"type": "plain_text", "text": line, "emoji": False},
-    } for line in lines]
+@dataclass(frozen=True)
+class ActivityEntry:
+    label: str
+    command: str = ""
+    commentary: bool = False
+
+    @property
+    def text(self):
+        return f"{self.label}\n{self.command}" if self.command else self.label
+
+    def block(self):
+        if self.commentary:
+            return {"type": "section", "text": {
+                "type": "plain_text", "text": self.label, "emoji": False,
+            }}
+        elements = [{"type": "rich_text_quote", "elements": [
+            {"type": "text", "text": self.label},
+        ]}]
+        if self.command:
+            elements.append({**preformatted(self.command), "border": 1})
+        return {"type": "rich_text", "elements": elements}
 
 
 class Activity:
     """Bounded activity tail; Slack I/O never runs on the Codex protocol reader."""
 
     MAX = 2800
+    MAX_ENTRIES = 20
+    OMITTED = ActivityEntry("Earlier activity omitted…")
     INTERVAL = 2.0
     EXPLORE = {"read": "Read", "search": "Search", "listFiles": "List"}
 
     def __init__(self, session, mode="summary"):
         self.session, self.mode = session, mode
-        self.text, self.ts = "", None
+        self.entries, self.ts = [], None
         self.last = float("-inf")
         self.dirty = False
         self.task = None
         self.lock = asyncio.Lock()
 
-    def line_for(self, item):
+    def entry_for(self, item):
         kind = item.get("type")
         if kind == "commandExecution":
             actions = item.get("commandActions") or []
+            exit_code = item.get("exitCode")
+            status = f" (exit {exit_code})" if exit_code not in (0, None) else ""
             if actions and all(a.get("type") in self.EXPLORE for a in actions):
-                line = "Explored: " + ", ".join(
+                summary = "Explored: " + ", ".join(
                     f"{self.EXPLORE[a['type']]} "
                     + (a.get("name") or a.get("query") or a.get("path") or "")
                     for a in actions
                 )
-            else:
-                line = "Ran " + display_command(item.get("command", ""))[:300]
-            if item.get("exitCode") not in (0, None):
-                line += f"  (exit {item['exitCode']})"
-            return line[:500]
+                return ActivityEntry(("🔎 " + summary)[:500 - len(status)].rstrip() + status)
+            command = display_command(item.get("command", ""))
+            if len(command) > 300:
+                command = command[:299] + "…"
+            return ActivityEntry("💻 Ran" + status, command)
         if kind == "fileChange":
-            return ("Edited " + ", ".join(c.get("path", "?") for c in item.get("changes", [])))[:500]
+            paths = ", ".join(c.get("path", "?") for c in item.get("changes", []))
+            return ActivityEntry(("📝 Edited " + paths)[:500])
         if kind == "mcpToolCall":
-            return f"Tool {item.get('server')}.{item.get('tool')}"[:500]
+            return ActivityEntry(f"🔧 Tool {item.get('server')}.{item.get('tool')}"[:500])
         # A null phase is also treated as a final answer by Codex.turn().
         if kind == "agentMessage" and item.get("phase") == "commentary":
-            return "• " + (item.get("text") or "")[:500]
+            text = (item.get("text") or "").strip().removeprefix("• ")[:500]
+            if text:
+                return ActivityEntry("ℹ️ " + text, commentary=True)
         return None
 
     async def feed(self, method, params):
         if self.mode == "off" or method != "item/completed":
             return
-        line = self.line_for(params.get("item", {}))
-        if line:
-            self.text = (self.text + "\n" + line).strip()[-self.MAX:]
+        entry = self.entry_for(params.get("item", {}))
+        if entry:
+            self.entries.append(entry)
+            while (len(self.entries) > self.MAX_ENTRIES
+                   or len("\n".join(entry.text for entry in self.entries)) > self.MAX):
+                if self.entries[0] is self.OMITTED:
+                    del self.entries[1]
+                else:
+                    self.entries[0] = self.OMITTED
             self.dirty = True
             if self.task is None or self.task.done():
                 self.task = asyncio.create_task(self._publish())
@@ -167,21 +193,18 @@ class Activity:
                 await self._flush()
 
     async def _flush(self, rotate=False):
-        text, ts, dirty = self.text, self.ts, self.dirty
+        entries, ts, dirty = self.entries.copy(), self.ts, self.dirty
         if rotate:
-            self.text, self.ts = "", None
+            self.entries, self.ts = [], None
         if not dirty:
             return
         self.dirty = False
         self.last = asyncio.get_running_loop().time()
         try:
             async with asyncio.timeout(5):
-                if ts is None:
-                    response = await self.session.manager.post(self.session, text, activity=True)
-                    if not rotate:
-                        self.ts = response["ts"]
-                else:
-                    await self.session.manager.update(self.session, ts, text)
+                response = await self.session.manager.publish_activity(self.session, ts, entries)
+                if ts is None and not rotate:
+                    self.ts = response["ts"]
         except Exception as error:
             # Progress is best effort, including rate limits and transport failures.
             LOG.warning("Activity update failed (%s)", type(error).__name__)
@@ -257,11 +280,14 @@ class Session:
         self.request_lock = asyncio.Lock()
         self.codex = None
         self.task = None
+        self.approval_paused = False
         self.activity = Activity(self, manager.config.activity_mode)
 
     async def request(self, method, params):
         # One DM reply must answer exactly one interactive request.
         async with self.request_lock:
+            if self.approval_paused:
+                raise ApprovalPaused
             return await self._request(method, params)
 
     async def _request(self, method, params):
@@ -403,24 +429,41 @@ class Session:
                     await self.activity.rotate()
                     await self.manager.report(self, answer)
                     text = await self.inputs.get()
+        except ApprovalPaused:
+            self.approval_paused = True
         except TimeoutError:
-            failure = "timed out after 2h" if deadline.expired() else "operation timed out"
+            if deadline.expired() and (
+                self.approval_paused or any(
+                    approval.session is self and not approval.future.done()
+                    for approval in self.manager.approvals.values()
+                )
+            ):
+                self.approval_paused = True
+            else:
+                failure = "timed out after 2h" if deadline.expired() else "operation timed out"
         except asyncio.CancelledError:
             raise
         except Exception as error:
             failure = safe_error(error)
         finally:
-            self.manager.sessions.pop((self.channel, self.thread), None)
-            for approval in list(self.manager.approvals.values()):
+            for approval in self.manager.approvals.values():
                 if approval.session is self and not approval.future.done():
-                    approval.future.set_result(False)
-            if self.codex:
-                await self.codex.close()
-            if failure:
-                await self.activity.rotate()
-            await self.activity.close()
-            if failure:
-                await self.manager.post(self, "failed: " + failure)
+                    approval.future.cancel()
+            try:
+                if self.codex:
+                    await self.codex.close()
+                if failure or self.approval_paused:
+                    await self.activity.rotate()
+                await self.activity.close()
+            finally:
+                self.manager.sessions.pop((self.channel, self.thread), None)
+        if self.approval_paused:
+            await self.manager.post(
+                self, "Session paused while waiting for approval. Reply in this thread to resume. "
+                "The agent will request fresh approval if needed.",
+            )
+        elif failure:
+            await self.manager.post(self, "failed: " + failure)
 
 
 class Manager:
@@ -431,7 +474,7 @@ class Manager:
         self.approvals = {}
         self.store = SessionStore(config)
 
-    async def post(self, session, text, *, activity=False, **kwargs):
+    async def post(self, session, text):
         if not session.channel.startswith("D"):
             raise ValueError("bot writes are restricted to private DMs")
         result = None
@@ -441,7 +484,7 @@ class Manager:
                 channel=session.channel,
                 thread_ts=session.thread,
                 text=chunk,
-                blocks=activity_blocks(chunk) if activity else [
+                blocks=[
                     {
                         "type": "section",
                         "text": {"type": "plain_text", "text": chunk, "emoji": False},
@@ -449,14 +492,16 @@ class Manager:
                 ],
                 unfurl_links=False,
                 unfurl_media=False,
-                **kwargs,
             )
         return result
 
     async def report(self, session, text):
         if not session.channel.startswith("D"):
             raise ValueError("bot writes are restricted to private DMs")
-        text = format_report(text, diagnosis=bool(session.url))
+        text = await format_report(
+            text, diagnosis=bool(session.url),
+            source_roots=(self.config.root, self.config.silica_repo, self.config.env_repo),
+        )
         return await self.bot_client.chat_postMessage(
             channel=session.channel,
             thread_ts=session.thread,
@@ -468,15 +513,19 @@ class Manager:
             unfurl_media=False,
         )
 
-    async def update(self, session, ts, text):
+    async def publish_activity(self, session, ts, entries):
         if not session.channel.startswith("D"):
             raise ValueError("bot writes are restricted to private DMs")
-        return await self.bot_client.chat_update(
-            channel=session.channel,
-            ts=ts,
-            text=text,
-            blocks=activity_blocks(text),
+        text = "\n".join(entry.text for entry in entries)
+        payload = dict(
+            channel=session.channel, text=html.escape(text, quote=False),
+            blocks=[entry.block() for entry in entries], mrkdwn=False, parse="none",
         )
+        if ts is None:
+            return await self.bot_client.chat_postMessage(
+                thread_ts=session.thread, unfurl_links=False, unfurl_media=False, **payload,
+            )
+        return await self.bot_client.chat_update(ts=ts, **payload)
 
     async def message(self, event, event_id):
         if (
@@ -546,11 +595,12 @@ class Manager:
         key = secrets.token_hex(16)
         approval = Approval(session, loop.create_future(), loop.time() + APPROVAL_SECONDS)
         self.approvals[key] = approval
-        accepted = False
+        status = "Approval request closed."
         details_blocks = []
         text = ""
+        timeout = asyncio.timeout_at(approval.deadline)
         try:
-            async with asyncio.timeout_at(approval.deadline):
+            async with timeout:
                 blocks = approval_blocks(key, params, self.config.root)
                 # Each block holds at most 2,800 characters. Batching also bounds
                 # fallback text, while every command character precedes the buttons.
@@ -591,25 +641,30 @@ class Manager:
                 )
                 approval.message_ts = response["ts"]
                 accepted = await approval.future
+                status = "Approved for this request only." if accepted else "Denied."
         except TimeoutError:
-            accepted = False
+            if not timeout.expired():
+                raise
+            session.approval_paused = True
+            status = "Approval expired without a response."
+            raise ApprovalPaused from None
         finally:
             self.approvals.pop(key, None)
             if approval.message_ts:
                 # Remove buttons but retain the command and reason for later review.
-                status = "Approved for this request only." if accepted else "Denied or expired."
                 with contextlib.suppress(Exception):
-                    await self.bot_client.chat_update(
-                        channel=session.channel,
-                        ts=approval.message_ts,
-                        blocks=details_blocks + [{
-                            "type": "section",
-                            "text": {"type": "plain_text", "text": status},
-                        }],
-                        text=text + "\n" + status,
-                        mrkdwn=False,
-                        parse="none",
-                    )
+                    async with asyncio.timeout(5):
+                        await self.bot_client.chat_update(
+                            channel=session.channel,
+                            ts=approval.message_ts,
+                            blocks=details_blocks + [{
+                                "type": "section",
+                                "text": {"type": "plain_text", "text": status},
+                            }],
+                            text=text + "\n" + status,
+                            mrkdwn=False,
+                            parse="none",
+                        )
         return "accept" if accepted else "decline"
 
     async def action(self, body):

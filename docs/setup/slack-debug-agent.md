@@ -54,30 +54,33 @@ The investigation starts in the original toolkit root. The agent is instructed t
 1. From the original toolkit root, create the local environment file:
 
    ```bash
-   rtk proxy install -m 600 slack-debug-agent/deploy/service.env.example slack-debug-agent/deploy/service.env
+   install -m 600 slack-debug-agent/deploy/service.env.example slack-debug-agent/deploy/service.env
    ```
 
    Replace every placeholder in `slack-debug-agent/deploy/service.env`. This file is ignored by Git; do not force-add it or copy it into documentation worktrees. Re-running the install command overwrites it, so use it only for initial setup.
+
 2. Set `SLACK_DEBUG_CODEX_HOME` to the dedicated absolute path. Set `PATH` to include the actual Codex, Git, `gh`, `rtk`, and diagnosis commands available to your account. Environment file values do not expand `$HOME` or `%h`; use actual absolute paths. Add `TZ=Asia/Hong_Kong` if the host uses another timezone and worktree dates should follow Hong Kong time.
-For foreground testing, complete steps 1–2, then follow the next section. For managed deployment, continue with steps 3–5:
+   For foreground testing, complete steps 1–2, then follow the next section. For managed deployment, continue with steps 3–5:
 
 3. Install the user service template:
 
    ```bash
-   rtk proxy install -d "$HOME/.config/systemd/user"
-   rtk proxy cp slack-debug-agent/deploy/slack-debug-agent.service "$HOME/.config/systemd/user/slack-debug-agent.service"
+   install -d "$HOME/.config/systemd/user"
+   cp slack-debug-agent/deploy/slack-debug-agent.service "$HOME/.config/systemd/user/slack-debug-agent.service"
    ```
 
    Edit the installed unit's `WorkingDirectory`, `EnvironmentFile`, and both paths in `ExecStart` to match the original toolkit root. The template assumes `%h/silica-ops-agent` as an example; `%h` expands to your home directory in the unit. `EnvironmentFile` must point to that repo's `slack-debug-agent/deploy/service.env`. A user service runs as your account and does not need `User` or `Group` settings.
+
 4. Start the user service:
 
    ```bash
-   rtk proxy systemctl --user daemon-reload
-   rtk proxy systemctl --user enable --now slack-debug-agent
-   rtk proxy systemctl --user status slack-debug-agent
+   systemctl --user daemon-reload
+   systemctl --user enable --now slack-debug-agent
+   systemctl --user status slack-debug-agent
    ```
 
    Use `systemctl --user restart slack-debug-agent` after configuration changes. To view logs, use `journalctl --user -u slack-debug-agent -n 50 --no-pager`.
+
 5. To start at boot and keep running after logout, enable lingering for your account with `loginctl enable-linger "$USER"`. This may require administrator authorization under the host's policy. See [loginctl](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html).
 
 `KillMode=control-group` stops Codex processes and descendants on a service restart. New Codex threads persist in the configured Codex home. The listener keeps their Slack DM mappings in `./slack-debug-agent/state/sessions.sqlite3`. Reply in the original DM thread after restarting to resume saved context. Running commands, pending approvals, questions, and queued replies are interrupted rather than automatically replayed; old buttons cannot authorize a new process. Git branches, documentation worktrees, and PRs also remain available for recovery.
@@ -89,7 +92,7 @@ On Linux, the listener disables process dumpability before starting Codex, prote
 Use the repository's existing `.venv/bin/python`. From the toolkit root, install the listener dependencies if needed:
 
 ```bash
-rtk proxy uv pip install --python .venv/bin/python -r slack-debug-agent/requirements.txt
+uv pip install --python .venv/bin/python -r slack-debug-agent/requirements.txt
 ```
 
 Create and fill in `slack-debug-agent/deploy/service.env` from the template if it does not already exist. Keep the Slack tokens, user/channel IDs, and workspace hostname configured there. Set the Codex home and your macOS tool search path, for example on this Apple Silicon host:
@@ -104,8 +107,8 @@ The listener explicitly expands `~` in the Codex home setting. For another accou
 The profile filename is `~/.codex/diagnose.config.toml` (`.toml`, not `.tmol`). The selected home must also contain its base `config.toml` and your existing Codex login. Run:
 
 ```bash
-rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --profile diagnose --check
-rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --profile diagnose
+.venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --profile diagnose --check
+.venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --profile diagnose
 ```
 
 Leave the second command running and DM the bot `help debugging on <issue-permalink>`. Press Ctrl-C to stop it. No systemd service is needed for this test. Do not run a second listener for the same app at the same time.
@@ -119,13 +122,13 @@ Profile reference: [Codex configuration profiles](https://learn.chatgpt.com/docs
 On macOS or Ubuntu, from the original toolkit root, validate configuration without connecting to Slack. For the existing-profile setup above, also pass `--profile diagnose`:
 
 ```bash
-rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --check
+.venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env --check
 ```
 
 Then start the listener in the foreground:
 
 ```bash
-rtk proxy .venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env
+.venv/bin/python slack-debug-agent/main.py --env-file slack-debug-agent/deploy/service.env
 ```
 
 `--env-file` reads the file once before configuration validation, overrides matching inherited variables, and does not expand variable references or execute shell commands. Relative file paths resolve from the toolkit root. A missing or empty file stops startup. Without this option, the listener uses the environment supplied by systemd or its parent process.
@@ -152,13 +155,13 @@ Short approvals show `Approve? [short-id]`, the command after `$` in a native Sl
 
 ### Findings delivery
 
-Final answers arrive as one Slack rich-text message with bullets, emphasis, labeled links, and code blocks where useful. The agent is instructed to keep diagnosis reports under 6,000 characters and put extended findings in the diagnosis PR. The listener repairs JSON-encoded report strings and escaped prose newlines and preserves code escapes. Replies exceeding 12,000 characters receive a visible shortening notice and retain reference links within the reply limit. Ask a follow-up for omitted details. Approval commands are rendered in full in native Slack code blocks. Restart the listener after updating the code.
+Final answers arrive as one Slack rich-text message with bullets, emphasis, labeled links, and code blocks where useful. The listener converts local file citations in the configured repositories to commit-pinned GitHub links when the cited file matches a published revision known to the checkout. Citations to unpublished files use repository-relative paths. The agent is instructed to keep diagnosis reports under 6,000 characters and put extended findings in the diagnosis PR. The listener repairs JSON-encoded report strings and escaped prose newlines and preserves code escapes. Replies exceeding 12,000 characters receive a visible shortening notice and retain reference links within the reply limit. Ask a follow-up for omitted details. Approval commands are rendered in full in native Slack code blocks. Restart the listener after updating the code.
 
 ### Activity feed
 
 Each visible activity line has its own Slack section on both the initial post and subsequent updates, so commands remain visually separated. The message displays up to 20 sections, with an omission notice when older lines are dropped.
 
-Set `SLACK_DEBUG_ACTIVITY=summary` (default) or `off` in the listener environment and restart it. Summary mode edits a bounded activity message in the originating DM thread about every two seconds, grouping completed reads, searches, and file listings as `Explored`, and showing other commands, changed paths, MCP tool names, and any commentary. It flushes and starts a fresh activity message around approvals, questions, final answers, and failures. Commands may contain sensitive arguments; activity excludes command output, diffs, tool results, and reasoning. Slack update failures are best effort and do not fail the diagnosis. Activity does not add Slack permissions.
+Set `SLACK_DEBUG_ACTIVITY=summary` (default) or `off` in the listener environment and restart it. Summary mode edits a bounded activity message in the originating DM thread about every two seconds. Process entries use Slack quote blocks with emoji labels such as `🔎 Explored` and `💻 Ran`. Command text appears in a bordered code block beneath `💻 Ran`. Agent commentary appears as plain prose prefixed with `ℹ️`. The listener flushes and starts a fresh activity message around approvals, questions, final answers, and failures. Commands may contain sensitive arguments; activity excludes command output, diffs, tool results, and reasoning. Slack update failures are best effort and do not fail the diagnosis. Activity does not add Slack permissions.
 
 ## Verification
 
@@ -214,7 +217,9 @@ Shorthand such as `debug <issue-permalink>` also starts an investigation. The bo
 
 In either kind of thread, use **Approve** or **Deny** for sandbox decisions. The listener applies the same Codex profile and approval policy to both kinds of conversation. Ordinary messages never approve commands.
 
-There is no concurrency cap. Each active session gets its own Codex process and runs at most two hours from attachment, including follow-up and idle time. An explicit reply after a restart, failure, or timeout resumes the saved Codex conversation in a new process with a new two-hour window. A session that exceeds the limit reports `failed: timed out after 2h`. The listener uses the user-token client to read issue threads and the bot client to reply in private DMs. It does not download attachments.
+An unanswered approval expires after ten minutes and pauses the session. Reply in the same DM thread to resume. The agent will ask for fresh approval if needed.
+
+There is no concurrency cap. Each active session gets its own Codex process and runs at most two hours from attachment, including follow-up and idle time. At that limit, a session awaiting approval pauses and other sessions report `failed: timed out after 2h`. An explicit reply after a pause, restart, failure, or timeout resumes the saved Codex conversation in a new process with a new two-hour window. The listener uses the user-token client to read issue threads and the bot client to reply in private DMs. It does not download attachments.
 
 ## Troubleshooting
 

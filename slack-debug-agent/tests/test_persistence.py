@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from test_agent import URL, FakeCodex, Slack, config, event, until
 
@@ -124,6 +125,48 @@ class PersistenceTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertFalse(manager.sessions)
         self.assertFalse(manager.bot_client.posts)
+
+    async def test_unanswered_approval_pauses_until_a_thread_reply(self):
+        class AwaitingApproval(FakeCodex):
+            async def turn(self, text):
+                self.texts.append(text)
+                result = await self.handler("item/commandExecution/requestApproval", {
+                    "command": "pwd", "cwd": "/tmp",
+                })
+                return result["decision"]
+
+        manager = self.manager()
+        manager.codex_factory = AwaitingApproval
+        thread = event()["ts"]
+        with patch("slack_debug.app.APPROVAL_SECONDS", 0.02):
+            await manager.message(event(), "approval-paused")
+            await until(lambda: manager.bot_client.posts[-1]["text"].startswith("Session paused")
+                        if manager.bot_client.posts else False)
+        original = FakeCodex.instances[-1]
+        self.assertTrue(original.closed)
+        self.assertFalse(manager.sessions)
+        self.assertFalse(manager.approvals)
+        self.assertEqual(manager.store.find("D123", thread)["codex_thread"], original.thread_id)
+
+        old_prompt = manager.bot_client.posts[-2]
+        old_button = old_prompt["blocks"][-1]["elements"][0]
+        action = {
+            "user": {"id": "U123"}, "channel": {"id": "D123"},
+            "message": {"ts": manager.bot_client.updates[-1]["ts"]},
+            "actions": [{"value": old_button["value"], "action_id": "debug_approve"}],
+        }
+        await manager.action(action)
+        self.assertFalse(manager.sessions)
+        await manager.message(event("continue", thread_ts=thread), "continue-paused")
+        await until(lambda: any(approval.message_ts for approval in manager.approvals.values()))
+        key, approval = next(iter(manager.approvals.items()))
+        self.assertNotEqual(key, old_button["value"])
+        self.assertEqual(FakeCodex.instances[-1].resumed_thread, original.thread_id)
+        await manager.action(action)
+        self.assertFalse(approval.future.done())
+        await manager.action({**action, "message": {"ts": approval.message_ts},
+                              "actions": [{"value": key, "action_id": "debug_deny"}]})
+        await until(lambda: manager.bot_client.posts[-1]["text"] == "decline")
 
     async def test_missing_codex_history_reports_failure_without_creating_new_thread(self):
         manager = self.manager()
