@@ -3,6 +3,7 @@ bin/
 coverage.out
 .env
 .env.*
+*.env
 !.env.example
 *.pem
 *.key
@@ -22,3 +23,5 @@ __pycache__/
 /.venv/
 /slack-debug-agent/deploy/service.env
 /slack-debug-agent/state/
+
+*.sqlite3

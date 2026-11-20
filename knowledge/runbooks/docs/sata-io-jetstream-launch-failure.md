@@ -4,14 +4,18 @@ slug: sata-io-jetstream-launch-failure
 services: [nats, experience-conductor, session-server, unity]
 tags: [sata, storage, jetstream, quorum, unity, launch]
 status: reviwed
-last_verified: 2026-11-17
-applies_to: {}
-source_incidents: [../../incidents/2026-11-14-atwiecol-sata-io-unity-launch.md]
+last_verified: 2026-11-18
+applies_to: { nats: "2.15.2 for the health-check and Raft behavior" }
+source_incidents:
+  - ../../incidents/2026-11-14-atwiecol-sata-io-unity-launch.md
+  - ../../incidents/2026-11-17-atwiecol-jetstream-quorum-loss.md
 ---
 
 ## Symptoms
 
 Unity fails to appear across rooms or player/server PCs. Silica remains Checking and later reports Error. Launch services may restart repeatedly while Nomad jobs appear running.
+
+A single player job can also be missing while the same launch creates the other room jobs. An earlier termination can legitimately purge the old job. Trace what prevented the new job from being created.
 
 Running allocations and SSH access alone do not imply useful command delivery. Healthy NAS status does not establish health of a local disk backing NATS. A SMART PASSED result alone does not exclude host-observed command timeouts. `WRITE FPDMA QUEUED` identifies an affected queued-write path; it does not prove NCQ is the root defect.
 
@@ -45,15 +49,21 @@ The query/command shapes below were executed with incident-specific substitution
 
    Bad: multi-second estimated mean completion time, high I/O wait and collapsing completed throughput. Good: stable low latency and advancing application work. These are sampled aggregate estimates, not request traces or proof of low submitted workload. Inspect peers and events before/after the report, not only submission time.
 
+6. **Distinguish a single consumer stall from stream quorum loss.** Correlate the same launch across conductor event and command logs. Then filter NATS logs for the exact durable name and inspect each broker's `/jsz?accounts=true&streams=true&consumers=true&raft=true`. A command published and handled by adjacent players, plus an affected consumer without quorum, places the failure before Nomad submission. A current leader showing caught-up peers and recorded delivery establishes recovery at observation time. Follower snapshots can disagree with the leader. A backlog warning from an unmapped Raft group does not identify the failing consumer. If retained, use the consumer quorum-loss advisory to inspect the peers present at onset.
+
+7. **Compare broker memory at onset with a working window.** Plot the NATS main task's `nomad_client_allocs_memory_usage` and `nomad_client_allocs_memory_max_allocated` in Grafana. Sustained near-limit usage warrants checking the task's cgroup event counters when collected. Use a single container lifetime to compare deltas. Total task usage alone does not establish Go heap growth, reclamation stalls, an OOM kill, or a causal link to the election. Correlate storage and broker lifecycle logs independently.
+
 ## Likely causes
 
-| Cause                                           | Evidence that confirms                                                                                   | Evidence that rules out                                                                        |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Storage timeouts disrupt queue persistence      | Kernel timeout/reset plus broker sync errors, quorum loss and launch-consumer failures at matching times | Queue/storage progress remains normal while a specific game blocks elsewhere                   |
-| SSD, firmware, controller or driver interaction | Repeatable controlled comparison that changes one component or setting                                   | Similar errors survive that change; no component was isolated in the source incident           |
-| Disk exhaustion                                 | Filesystem capacity at exhaustion and matching no-space failures                                         | Adequate capacity weakens current exhaustion; historic state still needs evidence              |
-| SATA transmission corruption                    | Growing CRC/PHY errors and matching kernel diagnostics                                                   | Zero counters weaken this mechanism but do not eliminate every physical/power fault            |
-| Game-specific initialization hang               | Launched process blocked in a confirmed game/native path while shared launch delivery works              | Widespread queue failures with independent kernel/broker storage errors support a shared cause |
+| Cause                                           | Evidence that confirms                                                                                         | Evidence that rules out                                                                         |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Storage timeouts disrupt queue persistence      | Kernel timeout/reset plus broker sync errors, quorum loss and launch-consumer failures at matching times       | Queue/storage progress remains normal while a specific game blocks elsewhere                    |
+| SSD, firmware, controller or driver interaction | Repeatable controlled comparison that changes one component or setting                                         | Similar errors survive that change; no component was isolated in the source incident            |
+| Disk exhaustion                                 | Filesystem capacity at exhaustion and matching no-space failures                                               | Adequate capacity weakens current exhaustion; historic state still needs evidence               |
+| SATA transmission corruption                    | Growing CRC/PHY errors and matching kernel diagnostics                                                         | Zero counters weaken this mechanism but do not eliminate every physical/power fault             |
+| Individual launch consumer lacks quorum         | Other handlers receive the same launch while the exact consumer reports lost quorum and has no handled command | Affected handler receives and processes that command, after which submission or execution fails |
+| Memory pressure affects replication             | Task memory event or stall counters increase alongside lag on the affected replicas                            | Stable task headroom and pressure counters through the episode weaken this cause                |
+| Game-specific initialization hang               | Launched process blocked in a confirmed game/native path while shared launch delivery works                    | Widespread queue failures with independent kernel/broker storage errors support a shared cause  |
 
 ## Remediation (HUMAN executes; agent never runs)
 
@@ -93,3 +103,6 @@ For I/O attribution, distinguish completed bytes/operations from submitted workl
 - Universality across every attempted session and causality of missing session-setup experiences.
 - A broker replication/health preflight and backup/restore procedure for maintenance; specify and verify these before implementation.
 - Effectiveness and operational tradeoffs of a stronger health check were not tested. Enabled-only checks skip stream/consumer state; this setting was confirmed in the source incident's retained Nomad job version. For each new incident, compare actual deployment and version-matched health implementation. Distinguish a setup-task retry from a broker-main restart using task identity and lifecycle events.
+
+- Live advisory ingestion, diagnostic sampler records, exporter discovery and Grafana alert delivery are not-checked. The monitoring code and local rendering, fixture and compatibility checks are recorded in the follow-up incident.
+- The exact voting peers and initiating cause of the isolated launch consumer's quorum loss are unverified. A Raft group observed after recovery does not establish its identity during the outage.
