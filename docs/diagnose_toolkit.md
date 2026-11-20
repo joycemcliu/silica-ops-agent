@@ -54,6 +54,13 @@ Use these hints to select a candidate, then confirm its hostname, operating syst
 - Confirm the target PC belongs to the selected store. For prod, also confirm its IP is within the forwarded LAN CIDR. Remote commands follow the same permissions as local commands: read-only checks are allowed; changes require approval unless already authorized for the session.
 - Close SSH and WinRM sessions when finished. Stop sshuttle only if started for this session; leave pre-existing tunnels running.
 
+### Store deployment check
+
+Run `.venv/bin/python scripts/store-deployment-check.py --store STORE_CODE --env-root <SILICA_ENV_REPO> --nomad-addr HOST:4646 --consul-addr HOST:8500 [--json]` to compare the store's Terraform files with live Nomad and Consul. Use the dev node IPs or the addresses printed by `scripts/store-port-forward.sh`. It is read-only and does not open forwards.
+
+- Expected jobs are the `module` names in the store's `*.tf` files, matched to Nomad job names by name. Unmatched modules are `WARN` because the mapping is a heuristic; verify with Nomad.
+- `WARN` is also reported for groups with 20+ restarts. Dead jobs are not flagged on their own because some are expected to be dead. `FAIL` is reported for failed, lost, or stuck-pending allocations, and `*.service.silica` names with no registered or passing Consul instance. Exit code is non-zero on any `FAIL`.
+
 ### Logs, metrics, and traces
 
 - Use the MCP servers `grafana_mcp_ops_dev` for dev and `grafana_mcp_ops_prod` for prod. Read-only MCP queries do not require user approval.
@@ -71,6 +78,6 @@ Use these hints to select a candidate, then confirm its hostname, operating syst
 
 Skills in [`docs/skills/`](skills/) extend this toolkit for specific tasks. Load only a matching `SKILL.md` when useful; they are not required steps for every diagnosis. The diagnosis permissions apply unchanged, and loading a skill does not authorize changes or render experiments.
 
-| Skill                                                       | When useful                                                                                                                                                                                                         |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill                                                              | When useful                                                                                                                                                                                                         |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [AE diagnostic test launch](skills/ae-render-test-launch/SKILL.md) | Preflight a Windows renderer's worker context or launch an authorized controlled AE render with isolated output, deadlines, and validation. Windows/AE end-to-end execution of this new runner remains not-checked. |
