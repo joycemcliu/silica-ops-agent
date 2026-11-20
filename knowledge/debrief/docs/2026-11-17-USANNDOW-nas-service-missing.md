@@ -22,10 +22,10 @@ None. Incident timing and tunnel permission required user input.
 
 ## Toolkit friction
 
-- [med] [open] [Store forwarding/SSH] Port-forward and SSH scripts report `PROBE_PIDS[@]: unbound variable` during exit despite successful checks.
+- [med] [improved] [Store forwarding/SSH] Port-forward and SSH scripts report `PROBE_PIDS[@]: unbound variable` during exit despite successful checks.
   Proposal: make empty-array cleanup safe on the supported Bash version and verify child cleanup (E7, E11).\
-  Status checked: 2026-11-17 — Both [forwarding](../../../scripts/store-port-forward.sh) and [SSH](../../../scripts/store-port-forward-ssh.sh) helpers still expand empty `PROBE_PIDS` arrays under `set -u`. Repository inspection only; no child-cleanup runtime check.\
-  Remaining: Fix supported-shell empty-array cleanup and verify session-owned child cleanup.
+  Status checked: 2026-11-18 — Commit `a9d95a8` guards empty-array cleanup for Bash 3.2 in both helpers. The [cleanup regression](../../../scripts/tests/test_store_port_forward.py) passed on Linux Bash 5.2 with empty and populated arrays. It verified that cleanup stops owned probe processes and preserves unrelated processes.\
+  Remaining: None for the recorded cleanup issue.
 
 - [med] [improved] [Grafana MCP] Grafana MCP transport failed during historical ACL query.
   Proposal: retain explicit evidence coverage and recovery instructions; do not infer that no ACL errors occurred (E12).\

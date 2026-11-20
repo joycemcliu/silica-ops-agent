@@ -1,0 +1,6 @@
+simulation: slack-debug
+routing: path
+mocks:
+  - name: Slack Web API subset
+    routeKey: slack
+    path: postman/mocks/slack-debug/config.yaml

@@ -29,10 +29,10 @@ Source: [incident and evidence ledger](../../incidents/2026-11-07-uskirtot-wcap-
   Status checked: 2026-11-17 — Rechecked the [Grafana helper](../../../scripts/grafana-mcp-forward.sh) and [toolkit](../../../docs/diagnose_toolkit.md#logs-metrics-and-traces): macOS prerequisites/support and recovery versus MCP refresh are documented. [Store forwarding](../../../scripts/store-port-forward.sh) now detaches, retries disconnects every 3 seconds and rediscovers replacement Nomad pods. All 4 forwarding regression tests passed using fake tools and loopback connections. Per user direction, improved covers documented recovery and store reconnection; store forwarding does not repair Grafana MCP transport or tool exposure. No live Grafana handshake/query was validated.\
   Remaining: None in the accepted recovery scope. MCP failures remain unresolved and are excluded from this follow-up.
 
-- [med] [open] [Store forwarding] Store helper emitted an unbound empty-array error under the local Bash; background forwards also required a held terminal.
+- [med] [improved] [Store forwarding] Store helper emitted an unbound empty-array error under the local Bash; background forwards also required a held terminal.
   Proposal: handle empty arrays on supported shells and verify tunnel survival after helper exit. [E03]\
-  Status checked: 2026-11-17 — [Store helper](../../../scripts/store-port-forward.sh) inspection still finds unguarded empty `PROBE_PIDS` expansion under `set -u`; its persistent-background claim has not been revalidated.\
-  Remaining: Fix supported-shell cleanup and verify tunnel survival after helper exit.
+  Status checked: 2026-11-18 — Commit `a9d95a8` guards empty-array cleanup for Bash 3.2, and `de0a7b3` detaches the store forwards. The [regression suite](../../../scripts/tests/test_store_port_forward.py) passed on Linux Bash 5.2 with test doubles and loopback connections, including reachability after launcher exit.\
+  Remaining: None for the recorded cleanup and persistence issues.
 
 - [med] [open] [Tunnel process discovery] Sandbox process discovery missed live forwards; elevated cleanup found and closed exactly the session-owned ones.
   Proposal: distinguish inaccessible process inventory from no active tunnels. [E16]\

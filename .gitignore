@@ -21,5 +21,7 @@ __pycache__/
 .pytest-tmp/
 /config.env
 /.venv/
+/slack-debug-agent/deploy/service.env
+/slack-debug-agent/state/
 
 *.sqlite3

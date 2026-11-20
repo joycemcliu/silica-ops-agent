@@ -1,0 +1,16 @@
+[Unit]
+Description=Private Slack Silica diagnosis listener
+
+[Service]
+Type=simple
+WorkingDirectory=%h/silica-ops-agent
+EnvironmentFile=%h/silica-ops-agent/slack-debug-agent/deploy/service.env
+ExecStart=%h/silica-ops-agent/.venv/bin/python %h/silica-ops-agent/slack-debug-agent/main.py
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+UMask=0077
+
+[Install]
+WantedBy=default.target
