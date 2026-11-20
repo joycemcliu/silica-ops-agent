@@ -1,12 +1,13 @@
 """Read-only Slack history MCP server (stdio) for diagnosis agents.
 
-Exposes only read tools. Needs SLACK_HISTORY_TOKEN with read scopes; it never posts.
+Exposes only read tools. Needs a read-scoped token from SLACK_HISTORY_TOKEN_FILE (preferred) or SLACK_HISTORY_TOKEN; it never posts.
 Optional SLACK_HISTORY_CHANNELS (comma-separated IDs) restricts readable channels.
 """
 
 import os
 import re
 import sys
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from mcp.server.fastmcp import FastMCP
@@ -25,8 +26,11 @@ def client():
     global _client
     if _client is None:
         token = os.environ.get("SLACK_HISTORY_TOKEN")
+        path = os.environ.get("SLACK_HISTORY_TOKEN_FILE")
+        if not token and path:
+            token = Path(path).expanduser().read_text().strip()
         if not token:
-            raise RuntimeError("SLACK_HISTORY_TOKEN is not set")
+            raise RuntimeError("set SLACK_HISTORY_TOKEN_FILE (or SLACK_HISTORY_TOKEN)")
         # aiohttp keeps connections alive; the sync client's `Connection: close` stalls on some networks.
         _client = AsyncWebClient(token=token, timeout=20)
     return _client

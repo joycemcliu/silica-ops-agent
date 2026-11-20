@@ -1,0 +1,27 @@
+# Single source of truth for MCP servers used by every diagnose agent
+# (local Codex/Hermes sessions and the Slack listener's Codex home).
+# Render runtime config with scripts/render-mcp-config.py; do not hand-edit copies.
+#
+# Placeholders: {repo} = this repository's root, {home} = $HOME,
+# {env:NAME} = value of environment variable NAME at render time (omitted if unset).
+# Servers must stay read-only; write actions belong behind the approval flow.
+
+[servers.grafana_mcp_ops_dev]
+type = "http"
+url = "http://127.0.0.1:60007/mcp"
+host_header = "localhost:60007"
+
+[servers.grafana_mcp_ops_prod]
+type = "http"
+url = "http://127.0.0.1:60008/mcp"
+host_header = "localhost:60008"
+
+[servers.slack_history]
+type = "stdio"
+command = "{repo}/.venv/bin/python"
+args = ["{repo}/scripts/slack-history-mcp.py"]
+codex_approve_tools = ["get_thread", "get_channel_history", "search_messages"]
+
+[servers.slack_history.env]
+SLACK_HISTORY_TOKEN_FILE = "{home}/.local/secrets/slack-history-token"
+SLACK_HISTORY_CHANNELS = "{env:SLACK_HISTORY_CHANNELS}"

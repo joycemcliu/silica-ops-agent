@@ -29,7 +29,7 @@ mcp_servers:
     command: /ABS/PATH/silica-ops-agent/.venv/bin/python
     args: [/ABS/PATH/silica-ops-agent/scripts/slack-history-mcp.py]
     env:
-      SLACK_HISTORY_TOKEN: xoxp-...
+      SLACK_HISTORY_TOKEN_FILE: /ABS/PATH/.local/secrets/slack-history-token
       SLACK_HISTORY_CHANNELS: C0123456789   # optional allowlist, comma-separated
 ```
 
@@ -39,10 +39,10 @@ Codex (`~/.codex/config.toml`):
 [mcp_servers.slack_history]
 command = "/ABS/PATH/silica-ops-agent/.venv/bin/python"
 args = ["/ABS/PATH/silica-ops-agent/scripts/slack-history-mcp.py"]
-env = { SLACK_HISTORY_TOKEN = "xoxp-...", SLACK_HISTORY_CHANNELS = "C0123456789" }
+env = { SLACK_HISTORY_TOKEN_FILE = "/ABS/PATH/.local/secrets/slack-history-token", SLACK_HISTORY_CHANNELS = "C0123456789" }
 ```
 
-Keep the token out of the repository. Set `SLACK_HISTORY_CHANNELS` to limit readable channels (the escalation channel at minimum).
+Store the token alone in a file outside the repository, for example `install -m 600 /dev/null ~/.local/secrets/slack-history-token`, then paste it in. Keep the token out of MCP configs. `SLACK_HISTORY_TOKEN` also works but puts the secret in config. Set `SLACK_HISTORY_CHANNELS` to limit readable channels (the escalation channel at minimum).
 
 ## Verification
 
@@ -59,7 +59,7 @@ Agents use it as described in the [diagnosis toolkit](../diagnose_toolkit.md#sla
 
 ## Troubleshooting
 
-- **`SLACK_HISTORY_TOKEN is not set`:** add the token to the server's `env` and reload the session.
+- **`set SLACK_HISTORY_TOKEN_FILE`:** add `SLACK_HISTORY_TOKEN_FILE` to the server's `env`, check the file exists, and reload the session.
 - **`missing_scope` or `not_in_channel`:** add the missing read scope, or use a user token belonging to a member of the channel.
 - **`channel is not in SLACK_HISTORY_CHANNELS`:** add the channel ID to the allowlist.
 - **Tools absent:** confirm the absolute paths, that the dependencies are installed in `.venv`, and that the session's tool selection enables the server.
