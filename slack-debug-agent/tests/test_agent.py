@@ -247,6 +247,14 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(FakeCodex.instances[-1].resumed_thread, client.thread_id)
         self.assertIn("after restart", FakeCodex.instances[-1].texts[-1])
 
+    async def test_polite_debug_command_fetches_issue_thread(self):
+        await self.manager.message(event(f"please debug <{URL}|{URL}>"), "polite-debug")
+        await until(lambda: FakeCodex.instances and FakeCodex.instances[0].texts)
+        self.assertEqual(len(self.user.reads), 1)
+        self.assertEqual(self.user.reads[0]["channel"], "C123")
+        self.assertTrue(self.bot.posts[0]["text"].startswith("working on thread"))
+        self.assertIn("Issue thread JSON:", FakeCodex.instances[0].texts[0])
+
     async def test_concurrent_sessions_keep_followups_separate(self):
         self.user.pages *= 2
         await self.manager.message(event(), "session-one")

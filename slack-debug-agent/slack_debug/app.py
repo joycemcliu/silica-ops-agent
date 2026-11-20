@@ -562,9 +562,17 @@ class Manager:
         try:
             async with timeout:
                 blocks = approval_blocks(key, params, self.config.root)
-                # Each block holds at most 2,800 characters. Batching also bounds
-                # fallback text, while every command character precedes the buttons.
-                batches = [blocks[offset:offset + 10] for offset in range(0, len(blocks), 10)]
+                # Stay below Slack's 4,000-character recommendation, including
+                # the status appended when the buttons are removed.
+                batches = [[]]
+                batch_length = 0
+                for block in blocks:
+                    block_length = len(approval_block_text(block))
+                    if batch_length + 1 + block_length > 3900:
+                        batches.append([])
+                        batch_length = 0
+                    batches[-1].append(block)
+                    batch_length += block_length + 1
                 for batch in batches[:-1]:
                     await self.bot_client.chat_postMessage(
                         channel=session.channel, thread_ts=session.thread,
@@ -602,6 +610,10 @@ class Manager:
                 approval.message_ts = response["ts"]
                 accepted = await approval.future
                 status = "Approved for this request only." if accepted else "Denied."
+        except SlackApiError as error:
+            failure = f"Could not send approval to Slack ({safe_error(error)})"
+            LOG.warning("%s", failure)
+            raise RuntimeError(failure) from None
         except TimeoutError:
             if not timeout.expired():
                 raise

@@ -13,7 +13,7 @@ from dotenv import dotenv_values
 APPROVAL_SECONDS = 600
 SESSION_SECONDS = 7200
 DEBUG_COMMAND = re.compile(
-    r"(?:help\s+)?(?:debugging|debug|checking|check|investigating)(?:\s+on)?\s+"
+    r"(?:please\s+)?(?:help\s+)?(?:debugging|debug|checking|check|investigating)(?:\s+on)?\s+"
     r"(?:<([^>|]+)(?:\|[^>]+)?>|(\S+))\s*",
     re.IGNORECASE,
 )
@@ -120,7 +120,7 @@ class Config:
 
 
 def is_debug_request(text: str) -> bool:
-    if re.match(r"help\s+debugging\s+on\b", text, re.IGNORECASE):
+    if re.match(r"(?:please\s+)?help\s+debugging\s+on\b", text, re.IGNORECASE):
         return True
     match = DEBUG_COMMAND.fullmatch(text)
     return bool(match and "://" in (match.group(1) or match.group(2)))

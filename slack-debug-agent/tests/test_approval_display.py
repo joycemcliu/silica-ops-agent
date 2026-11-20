@@ -2,10 +2,12 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+from slack_sdk.errors import SlackApiError
+
 from test_agent import Slack, config, until
 
 from slack_debug.app import Manager, Session, approval_blocks, approval_text, display_command
-from slack_debug.codex import ApprovalPaused
+from slack_debug.codex import ApprovalPaused, Codex
 
 
 class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
@@ -34,10 +36,33 @@ class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
         rendered = "".join(b["elements"][0]["elements"][0]["text"]
                            for p in bot.posts for b in p["blocks"] if b["type"] == "rich_text")
         self.assertEqual(rendered, "$ " + command)
-        self.assertTrue(all(len(p["blocks"]) <= 11 and len(p["text"]) < 30000 for p in bot.posts))
+        self.assertTrue(all(len(p["text"]) <= 3900 for p in bot.posts))
+        self.assertLessEqual(len(bot.updates[-1]["text"]), 4000)
         self.assertFalse(any(b["type"] == "actions" for p in bot.posts[:-1] for b in p["blocks"]))
         self.assertEqual(bot.posts[-1]["blocks"][-1]["type"], "actions")
         manager.store.close()
+
+    async def test_slack_rejection_keeps_the_error_code_and_closes_the_approval(self):
+        class RejectingSlack(Slack):
+            async def chat_postMessage(self, **kwargs):
+                raise SlackApiError("private response body", {"error": "invalid_blocks"})
+
+        manager = Manager(config(), RejectingSlack(), Slack())
+        self.addCleanup(manager.store.close)
+        session = Session(manager, "D123", "thread", "", "")
+        codex = Codex(manager.config, session.request)
+        with patch.object(codex, "send", return_value=None) as send, self.assertLogs():
+            await codex._answer({
+                "id": "approval",
+                "method": "item/commandExecution/requestApproval",
+                "params": {"command": "git status", "cwd": "/tmp"},
+            })
+        self.assertIn("error", send.call_args.args[0])
+        self.assertEqual(codex.events.get_nowait(), {
+            "method": "client/failure",
+            "params": {"reason": "Could not send approval to Slack (Slack API: invalid_blocks)"},
+        })
+        self.assertFalse(manager.approvals)
 
     def test_unwrap_only_plain_shell_invocations(self):
         self.assertEqual(display_command("/bin/zsh -lc 'git status'"), "git status")

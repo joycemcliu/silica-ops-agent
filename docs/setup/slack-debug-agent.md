@@ -213,7 +213,7 @@ To investigate an issue, send a top-level DM with the escalation message's perma
 help debugging on https://your-workspace.slack.com/archives/CHANNEL_ID/pMESSAGE_TIMESTAMP
 ```
 
-Shorthand such as `debug <issue-permalink>` also starts an investigation. The bot validates links submitted through these commands. The final diagnosis report includes symptom, suspected cause, evidence, added or updated repository-relative file paths, and a PR URL.
+Shorthand such as `debug <issue-permalink>` or `please debug <issue-permalink>` also starts an investigation. The bot validates links submitted through these commands. The final diagnosis report includes symptom, suspected cause, evidence, added or updated repository-relative file paths, and a PR URL.
 
 In either kind of thread, use **Approve** or **Deny** for sandbox decisions. The listener applies the same Codex profile and approval policy to both kinds of conversation. Ordinary messages never approve commands.
 
