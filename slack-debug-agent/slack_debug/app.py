@@ -37,18 +37,15 @@ def display_command(command: str) -> str:
     return command
 
 
-def display_cwd(cwd: str, root: Path) -> str:
-    try:
-        return str(Path(cwd).relative_to(root))
-    except ValueError:
-        return cwd               # outside the toolkit root: show the full path
+def display_cwd(cwd: str | None, root: Path) -> str:
+    return str(root / cwd) if cwd else "?"
 
 
 def approval_text(key: str, params: dict, root: Path) -> str:
     lines = [f"Approve? [{key[:8]}] (session pauses after 10 min without a response)"]
     if params.get("command"):
         lines.append("$ " + display_command(params["command"]))
-        lines.append("in " + display_cwd(params.get("cwd", "?"), root))
+        lines.append("in " + display_cwd(params.get("cwd"), root))
     lines.append("why: " + (params.get("reason") or "(not supplied by Codex)"))
     extra = {k: v for k, v in params.items() if k not in KNOWN}
     if extra:   # file changes, network or extra permissions: anything unusual still shows
@@ -69,7 +66,7 @@ def approval_blocks(key, params, root):
         for chunk in split_text("$ " + display_command(params["command"])):
             # Native preformatted text preserves indentation and literal backticks.
             blocks.append({"type": "rich_text", "elements": [preformatted(chunk)]})
-        details = "in " + display_cwd(params.get("cwd", "?"), root) + "\n" + details
+        details = "in " + display_cwd(params.get("cwd"), root) + "\n" + details
     blocks.extend({"type": "section", "text": {
         "type": "plain_text", "text": chunk, "emoji": False,
     }} for chunk in split_text(details))
@@ -158,7 +155,7 @@ class Activity:
         if kind == "agentMessage" and item.get("phase") == "commentary":
             text = (item.get("text") or "").strip().removeprefix("• ")[:500]
             if text:
-                return ActivityEntry("ℹ️ " + text, commentary=True)
+                return ActivityEntry(text, commentary=True)
         return None
 
     async def feed(self, method, params):
@@ -600,16 +597,21 @@ class Manager:
                                     "value": key,
                                 }
                                 for label, action in (
-                                    ("Approve", "debug_approve"),
-                                    ("Deny", "debug_deny"),
+                                    ("✅ Approve", "debug_approve"),
+                                    ("❌ Deny", "debug_deny"),
+                                    ("💬 Others", "debug_other"),
                                 )
                             ],
                         },
                     ],
                 )
                 approval.message_ts = response["ts"]
-                accepted = await approval.future
-                status = "Approved for this request only." if accepted else "Denied."
+                decision = await approval.future
+                status = {
+                    "accept": "Approved for this request only.",
+                    "decline": "Denied.",
+                    "other": "Denied. Your instructions were queued as a follow-up.",
+                }[decision]
         except SlackApiError as error:
             failure = f"Could not send approval to Slack ({safe_error(error)})"
             LOG.warning("%s", failure)
@@ -637,27 +639,77 @@ class Manager:
                             mrkdwn=False,
                             parse="none",
                         )
-        return "accept" if accepted else "decline"
+        return "accept" if decision == "accept" else "decline"
 
-    async def action(self, body):
+    def pending_approval(self, body, key):
         if body.get("user", {}).get("id") != self.config.user_id:
-            return
-        action = body.get("actions", [{}])[0]
-        approval = self.approvals.get(action.get("value"))
+            return None
+        approval = self.approvals.get(key)
         if (
             not approval
             or approval.future.done()
             or asyncio.get_running_loop().time() >= approval.deadline
         ):
-            return
+            return None
+        return approval
+
+    async def action(self, body):
+        action = (body.get("actions") or [{}])[0]
+        key = action.get("value")
+        approval = self.pending_approval(body, key)
         if (
-            body.get("channel", {}).get("id") != approval.session.channel
+            not approval
+            or body.get("channel", {}).get("id") != approval.session.channel
             or body.get("message", {}).get("ts") != approval.message_ts
         ):
             return
-        if action.get("action_id") not in ("debug_approve", "debug_deny"):
-            return
-        approval.future.set_result(action["action_id"] == "debug_approve")
+        match action.get("action_id"):
+            case "debug_approve":
+                approval.future.set_result("accept")
+            case "debug_deny":
+                approval.future.set_result("decline")
+            case "debug_other":
+                await self.bot_client.views_open(
+                    trigger_id=body["trigger_id"],
+                    view={
+                        "type": "modal",
+                        "callback_id": "debug_approval_feedback",
+                        "private_metadata": key,
+                        "title": {"type": "plain_text", "text": "Approval feedback"},
+                        "submit": {"type": "plain_text", "text": "Send instructions"},
+                        "blocks": [{
+                            "type": "input",
+                            "block_id": "feedback",
+                            "label": {"type": "plain_text", "text": "What should the agent do?"},
+                            "hint": {"type": "plain_text", "text": (
+                                "Submitting declines this request and sends your instructions "
+                                "to the agent as a follow-up."
+                            )},
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "instructions",
+                                "multiline": True,
+                                "max_length": 3000,
+                            },
+                        }],
+                    },
+                )
+
+    def approval_feedback(self, body):
+        view = body["view"]
+        key = view.get("private_metadata")
+        approval = self.pending_approval(body, key)
+        if not approval:
+            return "This approval is closed. Reply in the original DM thread to follow up."
+        entry = view["state"]["values"]["feedback"]["instructions"]
+        feedback = (entry.get("value") or "").strip()
+        if not feedback:
+            return "Enter instructions for the agent."
+        approval.session.inputs.put_nowait(
+            f"User feedback on denied approval [{key[:8]}]:\n{feedback}"
+        )
+        approval.future.set_result("other")
+        return None
 
     async def close(self):
         tasks = [s.task for s in list(self.sessions.values()) if s.task]

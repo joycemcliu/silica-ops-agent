@@ -41,7 +41,7 @@ class ActivityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(render({"type": "mcpToolCall", "server": "s", "tool": "t",
                                  "result": "secret result"}), ActivityEntry("🔧 Tool s.t"))
         self.assertEqual(render({"type": "agentMessage", "phase": "commentary",
-                                 "text": "checking"}), ActivityEntry("ℹ️ checking", commentary=True))
+                                 "text": "checking"}), ActivityEntry("checking", commentary=True))
         for item in ({"type": "reasoning", "text": "hidden"},
                      {"type": "agentMessage", "phase": "final_answer", "text": "done"},
                      {"type": "agentMessage", "text": "legacy final"}):
@@ -112,7 +112,7 @@ class ActivityTests(unittest.IsolatedAsyncioTestCase):
         await until(lambda: len(self.bot.posts) == 1)
         initial = self.bot.posts[0]
         plain, execution, explored = initial["blocks"]
-        self.assertEqual(plain["text"]["text"], f"ℹ️ {commentary}")
+        self.assertEqual(plain["text"]["text"], commentary)
         self.assertEqual(execution["type"], "rich_text")
         label, code = execution["elements"]
         self.assertEqual(label, {
@@ -133,7 +133,7 @@ class ActivityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["blocks"][:3], initial["blocks"])
         self.assertEqual(update["blocks"][3]["elements"][1]["elements"][0]["text"], literal)
         self.assertEqual(update["ts"], "1")
-        self.assertTrue(update["text"].startswith(f"ℹ️ {commentary}\n💻 Ran\n"))
+        self.assertTrue(update["text"].startswith(f"{commentary}\n💻 Ran\n"))
         self.assertIn("&lt;@U123&gt;", update["text"])
         self.assertFalse(update["mrkdwn"])
 

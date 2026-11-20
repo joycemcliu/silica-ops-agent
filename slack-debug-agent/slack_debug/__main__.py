@@ -49,9 +49,18 @@ async def run(config):
 
     @app.action("debug_approve")
     @app.action("debug_deny")
+    @app.action("debug_other")
     async def action(ack, body):
         await ack()
         await manager.action(body)
+
+    @app.view("debug_approval_feedback")
+    async def approval_feedback(ack, body):
+        error = manager.approval_feedback(body)
+        if error:
+            await ack(response_action="errors", errors={"feedback": error})
+        else:
+            await ack()
 
     handler = AsyncSocketModeHandler(app, config.app_token)
     stop = asyncio.Event()
