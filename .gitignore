@@ -3,6 +3,7 @@ bin/
 coverage.out
 .env
 .env.*
+*.env
 !.env.example
 *.pem
 *.key
@@ -20,3 +21,5 @@ __pycache__/
 .pytest-tmp/
 /config.env
 /.venv/
+
+*.sqlite3
