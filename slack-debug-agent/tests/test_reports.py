@@ -72,6 +72,36 @@ class ReportTests(unittest.IsolatedAsyncioTestCase):
             "type": "rich_text_section", "elements": [{"type": "text", "text": text.strip()}],
         }]}])
 
+    async def test_report_renders_native_table_between_prose_blocks(self):
+        await self.manager.report(self.session, (
+            "Created sessions:\n\n"
+            "| Session | experience/h1-p0 created (UTC) |\n"
+            "|---|---:|\n"
+            "| `261121-T1-102521` | 09:25:25.633 |\n"
+            "| 261121-G1-123423 | 11:45:16.638 |\n\n"
+            "Times are UTC."
+        ))
+        post, = self.bot.posts
+        before, table, after = post["blocks"]
+        self.assertEqual([block["type"] for block in (before, table, after)],
+                         ["rich_text", "table", "rich_text"])
+        self.assertEqual(table["column_settings"], [{"align": "left"}, {"align": "right"}])
+        self.assertEqual([[cell["elements"][0]["elements"][0]["text"] for cell in row]
+                          for row in table["rows"]], [
+            ["Session", "experience/h1-p0 created (UTC)"],
+            ["261121-T1-102521", "09:25:25.633"],
+            ["261121-G1-123423", "11:45:16.638"],
+        ])
+        self.assertIn("261121-T1-102521", post["text"])
+
+    def test_table_in_fenced_code_stays_literal_and_oversized_table_falls_back(self):
+        table = "| A | B |\n| --- | --- |\n| C | D |\n"
+        code, = report_blocks(f"```\n{table}```")
+        self.assertEqual(code["elements"][0]["elements"][0]["text"], table)
+        oversized = table + "| C | D |\n" * 100
+        fallback, = report_blocks(oversized)
+        self.assertEqual(fallback["elements"][0]["elements"][0]["text"], oversized)
+
     async def test_local_citations_link_to_published_lines_and_leave_code_literal(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

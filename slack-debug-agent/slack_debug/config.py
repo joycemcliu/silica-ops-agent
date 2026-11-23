@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from dotenv import dotenv_values
 
 APPROVAL_SECONDS = 600
-SESSION_SECONDS = 7200
+IDLE_SECONDS = 7200
 DEBUG_COMMAND = re.compile(
     r"(?:please\s+)?(?:help\s+)?(?:debugging|debug|checking|check|investigating)(?:\s+on)?\s+"
     r"(?:<([^>|]+)(?:\|[^>]+)?>|(\S+))\s*",

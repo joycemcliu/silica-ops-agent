@@ -386,23 +386,59 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         await self.manager.message(event("usbaymkt", thread_ts="thread"), "answer")
         self.assertEqual(await task, {"answers": {"store": {"answers": ["usbaymkt"]}}})
 
-    async def test_timeout_kills_active_session(self):
-        class Hanging(FakeCodex):
+    async def test_reply_during_idle_shutdown_resumes_saved_session(self):
+        closing = asyncio.Event()
+        finish_close = asyncio.Event()
+
+        class SlowClose(FakeCodex):
+            async def close(self):
+                closing.set()
+                await finish_close.wait()
+                await super().close()
+
+        self.manager.codex_factory = SlowClose
+        start = event()
+        with patch("slack_debug.app.IDLE_SECONDS", 0.01):
+            await self.manager.message(start, "start")
+            await until(closing.is_set)
+        original = FakeCodex.instances[0]
+        reply = asyncio.create_task(
+            self.manager.message(event("continue", thread_ts=start["ts"]), "follow-up")
+        )
+        try:
+            await asyncio.sleep(0)
+            self.assertFalse(reply.done())
+            self.assertEqual(len(FakeCodex.instances), 1)
+        finally:
+            finish_close.set()
+            await reply
+
+        await until(lambda: len(self.bot.posts) == 4)
+        resumed = FakeCodex.instances[1]
+        self.assertTrue(original.closed)
+        self.assertEqual(resumed.resumed_thread, original.thread_id)
+        self.assertIn("User follow-up:\ncontinue", resumed.texts[0])
+        self.assertFalse(any(post["text"].startswith("failed:") for post in self.bot.posts))
+
+    async def test_idle_timeout_does_not_count_time_spent_in_a_turn(self):
+        finish_turn = asyncio.Event()
+
+        class SlowTurn(FakeCodex):
             async def turn(self, text):
-                await asyncio.Event().wait()
+                await finish_turn.wait()
+                return await super().turn(text)
 
-        self.manager.codex_factory = Hanging
-        with patch("slack_debug.app.SESSION_SECONDS", 0.03):
-            await self.manager.message(event(), "timeout")
-            await until(
-                lambda: (
-                    self.bot.posts and self.bot.posts[-1]["text"] == "failed: timed out after 2h"
-                )
-            )
-        self.assertTrue(FakeCodex.instances[0].closed)
-        self.assertFalse(self.manager.sessions)
+        self.manager.codex_factory = SlowTurn
+        with patch("slack_debug.app.IDLE_SECONDS", 0.01):
+            await self.manager.message(event(), "start")
+            await until(lambda: bool(FakeCodex.instances))
+            await asyncio.sleep(0.03)
+            self.assertFalse(FakeCodex.instances[0].closed)
+            self.assertTrue(self.manager.sessions)
+        finish_turn.set()
+        await until(lambda: len(self.bot.posts) == 2)
 
-    async def test_operation_timeout_is_not_reported_as_two_hours(self):
+    async def test_operation_timeout_closes_session_and_reports_failure(self):
         class TimedOut(FakeCodex):
             async def turn(self, text):
                 raise TimeoutError

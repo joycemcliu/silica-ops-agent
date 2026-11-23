@@ -3,7 +3,6 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from slack_sdk.errors import SlackApiError
-
 from test_agent import Slack, config, until
 
 from slack_debug.app import Manager, Session, approval_blocks, approval_text, display_command
@@ -22,7 +21,8 @@ class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
                 "type": "text", "text": "$ " + command,
             }],
         }]})
-        self.assertEqual(blocks[2]["text"]["text"], f"in {root}\nwhy: Read-only request")
+        self.assertEqual(blocks[2]["text"]["text"], f"in {root}")
+        self.assertEqual(blocks[3]["text"]["text"], "why: Read-only request")
         self.assertIn(f"\nin {root}\n", approval_text("key", {
             "command": command, "cwd": ".", "reason": "Read-only request",
         }, root))
@@ -113,6 +113,8 @@ class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("$ git status\nin /tmp\nwhy: inspect", post["text"])
             self.assertEqual(post["blocks"][0]["text"]["type"], "plain_text")
             self.assertEqual(post["blocks"][1]["elements"][0]["type"], "rich_text_preformatted")
+            self.assertEqual(post["blocks"][2]["text"]["text"], "in /tmp")
+            self.assertEqual(post["blocks"][3]["text"]["text"], "why: inspect")
             self.assertEqual(post["blocks"][-1]["type"], "actions")
             self.assertTrue(all(b["value"] == key for b in post["blocks"][-1]["elements"]))
             self.assertEqual(
@@ -129,7 +131,7 @@ class ApprovalDisplayTests(unittest.IsolatedAsyncioTestCase):
             update = bot.updates[-1]
             self.assertIn("$ git status", update["text"])
             self.assertIn("Approved for this request only.", update["text"])
-            self.assertEqual(update["blocks"][1], post["blocks"][1])
+            self.assertEqual(update["blocks"][:-1], post["blocks"][:-1])
             self.assertFalse(any(b["type"] == "actions" for b in update["blocks"]))
         finally:
             task.cancel()

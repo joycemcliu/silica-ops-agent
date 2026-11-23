@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 from slack_sdk.errors import SlackApiError
 
 from .codex import ApprovalPaused, Codex
-from .config import APPROVAL_SECONDS, SESSION_SECONDS, is_debug_request, parse_permalink
+from .config import APPROVAL_SECONDS, IDLE_SECONDS, is_debug_request, parse_permalink
 from .elicitation import elicit
 from .reports import format_report, report_blocks, split_text
 from .state import SessionStore
@@ -66,10 +66,13 @@ def approval_blocks(key, params, root):
         for chunk in split_text("$ " + display_command(params["command"])):
             # Native preformatted text preserves indentation and literal backticks.
             blocks.append({"type": "rich_text", "elements": [preformatted(chunk)]})
-        details = "in " + display_cwd(params.get("cwd"), root) + "\n" + details
-    blocks.extend({"type": "section", "text": {
-        "type": "plain_text", "text": chunk, "emoji": False,
-    }} for chunk in split_text(details))
+        details_lines = ["in " + display_cwd(params.get("cwd"), root), details]
+    else:
+        details_lines = [details]
+    for line in details_lines:
+        blocks.extend({"type": "section", "text": {
+            "type": "plain_text", "text": chunk, "emoji": False,
+        }} for chunk in split_text(line))
     return blocks
 
 
@@ -269,6 +272,7 @@ class Session:
         self.codex = None
         self.task = None
         self.approval_paused = False
+        self.idle_expired = False
         self.activity = Activity(self, manager.config.activity_mode)
 
     async def request(self, method, params):
@@ -350,54 +354,51 @@ class Session:
 
     async def run(self):
         failure = None
-        deadline = asyncio.timeout(SESSION_SECONDS)
         try:
-            async with deadline:
-                if self.resume_thread:
-                    await self.manager.post(
-                        self, "Resuming this session. Previous processes were interrupted; "
-                        "old approvals and input prompts are no longer valid.",
-                    )
-                elif self.url:
-                    root_ts, issue = await read_issue(
-                        self.manager.user_client, self.manager.config, self.url, self.target_ts
-                    )
-                    await self.manager.post(self, f"working on thread {root_ts}")
-                self.codex = self.manager.codex_factory(
-                    self.manager.config, self.request, self.activity.feed
+            if self.resume_thread:
+                await self.manager.post(
+                    self, "Resuming this session from its saved conversation. "
+                    "Old approvals and input prompts are no longer valid.",
                 )
-                await self.codex.start(self.instructions(), resume_thread=self.resume_thread)
-                if self.resume_thread:
-                    text = (
-                        "Listener recovery: Resumed in the same Slack DM thread after the previous "
-                        "process ended.\n\nUser follow-up:\n" + await self.inputs.get()
-                    )
-                elif self.url:
-                    text = (
-                        f"Issue permalink: {self.url}\nAgent session ID: {self.codex.session_id}\n"
-                        "Issue thread JSON:\n"
-                        + json.dumps(issue, ensure_ascii=False)
-                    )
-                else:
-                    text = await self.inputs.get()
-                self.manager.store.save(self)
-                while True:
-                    answer = await self.codex.turn(text)
-                    await self.activity.rotate()
-                    await self.manager.report(self, answer)
-                    text = await self.inputs.get()
+            elif self.url:
+                root_ts, issue = await read_issue(
+                    self.manager.user_client, self.manager.config, self.url, self.target_ts
+                )
+                await self.manager.post(self, f"working on thread {root_ts}")
+            self.codex = self.manager.codex_factory(
+                self.manager.config, self.request, self.activity.feed
+            )
+            await self.codex.start(self.instructions(), resume_thread=self.resume_thread)
+            if self.resume_thread:
+                text = (
+                    "Listener recovery: Resumed in the same Slack DM thread after the previous "
+                    "process ended.\n\nUser follow-up:\n" + await self.inputs.get()
+                )
+            elif self.url:
+                text = (
+                    f"Issue permalink: {self.url}\nAgent session ID: {self.codex.session_id}\n"
+                    "Issue thread JSON:\n"
+                    + json.dumps(issue, ensure_ascii=False)
+                )
+            else:
+                text = await self.inputs.get()
+            self.manager.store.save(self)
+            while True:
+                answer = await self.codex.turn(text)
+                await self.activity.rotate()
+                await self.manager.report(self, answer)
+                try:
+                    async with asyncio.timeout(IDLE_SECONDS):
+                        text = await self.inputs.get()
+                except TimeoutError:
+                    if self.inputs.empty():
+                        self.idle_expired = True
+                        return
+                    text = self.inputs.get_nowait()
         except ApprovalPaused:
             self.approval_paused = True
         except TimeoutError:
-            if deadline.expired() and (
-                self.approval_paused or any(
-                    approval.session is self and not approval.future.done()
-                    for approval in self.manager.approvals.values()
-                )
-            ):
-                self.approval_paused = True
-            else:
-                failure = "timed out after 2h" if deadline.expired() else "operation timed out"
+            failure = "operation timed out"
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -500,6 +501,10 @@ class Manager:
         thread = event.get("thread_ts")
         if thread:
             session = self.sessions.get((channel, thread))
+            if session is not None and session.idle_expired:
+                # Finish closing the old process before reopening its saved Codex thread.
+                await asyncio.wait((session.task,))
+                session = self.sessions.get((channel, thread))
             if session is None and text:
                 saved = self.store.find(channel, thread)
                 if saved:

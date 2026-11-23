@@ -10,6 +10,9 @@ REPORT_LIMIT = 12000
 BLOCK_LIMIT = 2800
 CODE = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
 FENCE = re.compile(r"^```[^\n]*\n(.*?)^```[ \t]*\r?(?:\n|$)", re.MULTILINE | re.DOTALL)
+PIPE_ROW = r"^[ \t]*\|[^\n]*\|[ \t]*\r?(?:\n|$)"
+TABLE = rf"(?P<table>{PIPE_ROW}^[ \t]*\|(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*\r?(?:\n|$)(?:{PIPE_ROW})*)"
+REPORT_BLOCK = re.compile(rf"{FENCE.pattern}|{TABLE}", FENCE.flags)
 HEADING = re.compile(r"^#{1,6}[ \t]+(\S[^\n]*)", re.MULTILINE)
 LIST_ITEM = re.compile(r"^[ \t]*(?:([-+*•])|(\d+[.)]))[ \t]+(?=\S)")
 URL = r"https?://(?:[^\s<>()\[\]`|]|\([^\s<>()]+\))+"
@@ -137,13 +140,59 @@ def prose_elements(text):
                 yield {"type": "rich_text_section", "elements": elements}
 
 
+def table_block(text, remaining):
+    rows = [
+        [cell.strip().replace(r"\|", "|") for cell in re.split(r"(?<!\\)\|", line.strip()[1:-1])]
+        for line in text.rstrip("\n").split("\n")
+    ]
+    header, separators, *body = rows
+    data = [header, *body]
+    if (len(data) > 100 or len(header) > 20
+            or any(len(row) != len(separators) for row in data)):
+        return None
+    size = sum(len(cell) for row in data for cell in row)
+    if not 0 < size <= remaining:
+        return None
+
+    return {
+        "type": "table",
+        "column_settings": [
+            {"align": "center" if separator.startswith(":") else "right"}
+            if separator.endswith(":") else {"align": "left"}
+            for separator in separators
+        ],
+        "rows": [[
+            {"type": "rich_text", "elements": [{
+                "type": "rich_text_section", "elements": list(inline_elements(cell)),
+            }]} if cell else {"type": "raw_text", "text": ""}
+            for cell in row
+        ] for row in data],
+    }, size
+
+
 def report_blocks(text):
+    blocks = []
     elements = []
     position = 0
-    for fence in FENCE.finditer(text):
-        elements.extend(prose_elements(text[position:fence.start()]))
-        if fence[1]:
-            elements.append({"type": "rich_text_preformatted", "elements": [text_element(fence[1])]})
-        position = fence.end()
+    remaining = 10000
+    for match in REPORT_BLOCK.finditer(text):
+        table = None
+        if match["table"]:
+            # Leave room for prose before and after this table in Slack's 50-block payload.
+            if len(blocks) >= 48 or (table := table_block(match["table"], remaining)) is None:
+                continue
+        elements.extend(prose_elements(text[position:match.start()]))
+        if table:
+            block, size = table
+            remaining -= size
+            if elements:
+                blocks.append({"type": "rich_text", "elements": elements})
+                elements = []
+            blocks.append(block)
+        elif match[1]:
+            elements.append({"type": "rich_text_preformatted", "elements": [text_element(match[1])]})
+        position = match.end()
     elements.extend(prose_elements(text[position:]))
-    return [{"type": "rich_text", "elements": elements}] if elements else []
+    if elements:
+        blocks.append({"type": "rich_text", "elements": elements})
+    return blocks
