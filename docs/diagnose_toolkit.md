@@ -24,7 +24,7 @@ Ports: Nomad `4646`, Consul `8500`, PostgreSQL `5432`, and platform web access `
 ### Prod stores
 
 - Use `scripts/store-port-forward.sh` to access Nomad, Consul, the platform HTTPS API, and PostgreSQL. Use the local addresses printed by the script. These forwards detach from the launching session, so no held terminal is required. They retry every 3 seconds after kubectl exits and rediscover replacement Nomad pods. Use the cleanup script to stop both forwarding and retries. Existing client connections may need to reconnect.
-- Use `scripts/store-port-forward-ssh.sh` to run approved commands on the store cluster's master node. Forwards created by this helper last only for the SSH command or session; reused forwards are left running. The same lifetime rule applies to `scripts/store-sshuttle.sh` and its sshuttle command.
+- Use `scripts/store-port-forward-ssh.sh` to run approved commands on the store cluster's master node. Both this helper and `scripts/store-sshuttle.sh` clean up the Kubernetes port-forwards they start when their sessions end. Reused forwards stay running.
 - Use `scripts/store-port-forward-cleanup.sh` when finished. Close only tunnels opened for this session.
 
 ### Discover PCs and their roles
@@ -48,11 +48,10 @@ Use these hints to select a candidate, then confirm its hostname, operating syst
 ### Remote Linux and Windows PCs
 
 - **Dev stores (`dev`, `devlatest`, `qa`, `staging`):** connect directly to the PC IP discovered in Consul using SSH or WinRM. Do not run `scripts/store-sshuttle.sh` for these stores.
-- **Prod stores:** use `scripts/store-sshuttle.sh STORE_CODE` to reach PCs on the store's LAN through a node. Store codes are case-insensitive; no store-directory working location is required. Add `--node N` to select a specific node; otherwise the store SSH service selects a backing node. Follow the diagnosis permissions linked above.
-- Linux PCs in either environment: use `ssh USER@LINUX_IP` for an interactive shell, or `ssh USER@LINUX_IP 'COMMAND'` to run diagnostic or approved administration commands.
-- Windows PCs in either environment: use `.venv/bin/python scripts/windows-winrm-session.py --host WINDOWS_IP --command 'POWERSHELL'` from the repository root. Omit `--command` for a persistent PowerShell session.
-- Confirm the target PC belongs to the selected store. For prod, also confirm its IP is within the forwarded LAN CIDR. Remote commands follow the same permissions as local commands: read-only checks are allowed; changes require approval unless already authorized for the session.
-- Close SSH and WinRM sessions when finished. Stop sshuttle only if started for this session; leave pre-existing tunnels running.
+- **Prod stores:** after obtaining tunnel permission, use `scripts/store-sshuttle.sh STORE_CODE --forward LOCAL_PORT:PC_IP:PORT` with an unused local port above 1023. This creates a loopback SSH forward without local sudo. Use the configured SSH password file or a key available to noninteractive SSH. Store codes are case-insensitive. Add `--node N` to select a specific node.
+- For Linux SSH, forward to port 22 and run `ssh -p LOCAL_PORT USER@127.0.0.1 'COMMAND'`. For Windows WinRM over HTTP, forward to port 5985 and run `.venv/bin/python scripts/windows-winrm-session.py --host 127.0.0.1 --port LOCAL_PORT --command 'POWERSHELL'` from the repository root. For direct dev access, use the PC IP and default port. Omit the command for an interactive session.
+- Confirm the target PC belongs to the selected store. The forward requires a destination inside the store LAN CIDR. Remote changes require approval unless already authorized for the session.
+- Close SSH and WinRM sessions when finished. Stop only the tunnel started for this session and leave pre-existing tunnels running.
 
 ### Store deployment check
 

@@ -246,8 +246,9 @@ if [[ "${1:-}" == --reconnect ]]; then
     POD=$TARGET
     # Nomad pods have changing hash suffixes; rediscover after every disconnect.
     if [[ "$TARGET" == *-socat-nomad-*- ]]; then
+      # Drain the listing so kubectl can finish under pipefail.
       POD=$("$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" get pods -o name \
-        | awk -v prefix="$TARGET" 'index($0, prefix) == 1 { print; exit }') || POD=""
+        | awk -v prefix="$TARGET" '!found && index($0, prefix) == 1 { print; found = 1 }') || POD=""
     fi
     if [[ -n "$POD" ]]; then
       "$KUBECTL_BIN" --context "$KUBECTL_CONTEXT" -n "$NS" port-forward \

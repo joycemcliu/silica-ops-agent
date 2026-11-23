@@ -157,6 +157,10 @@ elif name in ('ssh', 'sshuttle'):
                 reservation.close()
         overrides = dict(zip(("NOMAD_LOCAL_PORT", "CONSUL_LOCAL_PORT", "HTTPS_LOCAL_PORT",
                               "POSTGRES_LOCAL_PORT"), map(str, ports)))
+        # Keep kubectl writing after the match so an early pipe close fails the lookup.
+        other_pods = ''.join(f'\npod/unrelated-store-socat-nomad-1-{i}' for i in range(50000))
+        nomad_pod = self.root / 'nomad-pod'
+        nomad_pod.write_text('pod/teststore-socat-nomad-1-test' + other_pods)
         launcher = subprocess.Popen(
             [BASH, str(SCRIPTS / "store-port-forward.sh"), "--store", "teststore", "--node", "1"],
             env={**self.env, **overrides, "LOCAL_TCP": "1"}, cwd=self.root,
@@ -193,7 +197,7 @@ elif name in ('ssh', 'sshuttle'):
         ], capture_output=True, text=True, timeout=10)
         self.assertEqual(client.returncode, 0, client.stderr)
         # Both tunnels restart, including a Nomad pod replaced with a new hash.
-        (self.root / 'nomad-pod').write_text('pod/teststore-socat-nomad-1-replaced')
+        nomad_pod.write_text('pod/teststore-socat-nomad-1-replaced' + other_pods)
         for pid in pids:
             os.kill(pid, signal.SIGTERM)
         deadline = time.monotonic() + 8

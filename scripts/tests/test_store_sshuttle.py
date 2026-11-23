@@ -44,7 +44,7 @@ elif name == 'nc':
     sys.exit(int(os.environ.get('NC_STATUS', '0')))
 """)
         tool.chmod(0o755)
-        for name in ("kubectl", "sshuttle", "pgrep", "ps", "nc", "sshpass"):
+        for name in ("kubectl", "ssh", "sshuttle", "pgrep", "ps", "nc", "sshpass"):
             (self.bin / name).symlink_to(tool)
         self.env = dict(os.environ)
         for key in ("PROD_SSH_NODE", "PN_NODE", "PROD_SSH_USER"):
@@ -106,6 +106,38 @@ elif name == 'nc':
     def test_sshuttle_exit_status_is_preserved(self):
         result = self.run_script("HKCWBMID", SSHUTTLE_STATUS="7")
         self.assertEqual(result.returncode, 7, result.stderr)
+
+    def test_single_port_forward_uses_loopback_ssh(self):
+        result = self.run_script("HKCWBMID", "--forward", "15985:10.26.1.50:5985")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls("sshuttle"), [])
+        args, = self.calls("ssh")
+        self.assertIn("BatchMode=yes", args)
+        self.assertIn("ExitOnForwardFailure=yes", args)
+        self.assertEqual(args[args.index("-L") + 1], "127.0.0.1:15985:10.26.1.50:5985")
+        self.assertEqual(args[-4:], ["-p", "40026", "--", "silica@127.0.0.1"])
+
+    def test_single_port_forward_uses_configured_ssh_password_file(self):
+        password_file = self.root / "ssh password"
+        password_file.write_text("test-password\n")
+        password_file.chmod(0o600)
+        result = self.run_script("hkcwbmid", "--forward", "15985:10.26.1.50:5985",
+                                 PROD_SSH_PASSWORD_FILE=str(password_file))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, = self.calls("sshpass")
+        self.assertEqual(args[:3], ["-f", str(password_file), "ssh"])
+        self.assertIn("NumberOfPasswordPrompts=1", args)
+
+    def test_single_port_forward_rejects_invalid_or_out_of_subnet_destination(self):
+        for forward in ("15985:10.27.1.50:5985", "15985:10.26.256.50:5985",
+                        "80:10.26.1.50:5985", "15985:10.26.1.50:65536"):
+            with self.subTest(forward=forward):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script("hkcwbmid", "--forward", forward)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.calls("ssh"), [])
+                self.assertEqual(self.calls("sshuttle"), [])
+                self.assertFalse(any("port-forward" in args for args in self.calls("kubectl")))
 
     def test_existing_forward_uses_bounded_netcat_probe(self):
         result = self.run_script("hkcwbmid")

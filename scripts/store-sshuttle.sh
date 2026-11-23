@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Route a store's LAN through its production SSH socat service.
+# Reach a store's LAN through its production SSH socat service.
 set -u
 
 CONTEXT="gke_infra-automate-production_us-west1_default-us-west1"
@@ -10,11 +10,13 @@ READINESS_RETRIES=30
 SSH_USER="${PROD_SSH_USER:-silica}"
 NODE="${PROD_SSH_NODE:-${PN_NODE:-}}"
 STORE_REQUEST=""
+FORWARD=""
 PASSWORD_FILE_DEFAULT="${HOME}/.local/secrets/silica-prod-master-node-password"
 PASSWORD_FILE="${PROD_SSH_PASSWORD_FILE-$PASSWORD_FILE_DEFAULT}"
 PASSWORD_FILE_EXPLICIT=0
 [[ -n "${PROD_SSH_PASSWORD_FILE+x}" ]] && PASSWORD_FILE_EXPLICIT=1
 CREATED_PORT_FORWARD_PID=""
+SSH_FORWARD_PID=""
 QUIET=0
 
 error() {
@@ -34,16 +36,16 @@ print_prefixed_file() {
   sed "s/^/${prefix}/" "$file" >&2
 }
 
-cleanup_port_forward() {
-  [[ -n "${CREATED_PORT_FORWARD_PID:-}" ]] || return 0
-
-  if kill -0 "$CREATED_PORT_FORWARD_PID" 2>/dev/null; then
-    kill "$CREATED_PORT_FORWARD_PID" 2>/dev/null || true
-    wait "$CREATED_PORT_FORWARD_PID" 2>/dev/null || true
-  fi
+cleanup() {
+  local pid
+  for pid in "$SSH_FORWARD_PID" "$CREATED_PORT_FORWARD_PID"; do
+    [[ -n "$pid" ]] || continue
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
 }
 
-trap cleanup_port_forward EXIT
+trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
@@ -121,9 +123,23 @@ extract_local_port() {
   grep -oE "[0-9]+:${REMOTE_SSH_PORT}( |$)" <<< "$process_args" | head -1 | cut -d: -f1
 }
 
+ipv4_number() {
+  local address="$1"
+  local octet value=0
+  local -a octets
+
+  [[ "$address" =~ ^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}$ ]] || return 1
+  IFS=. read -ra octets <<< "$address"
+  for octet in "${octets[@]}"; do
+    (( octet <= 255 )) || return 1
+    value=$(( (value << 8) | octet ))
+  done
+  printf '%s' "$value"
+}
+
 usage() {
   cat >&2 <<EOF
-Usage: $(basename "$0") [STORE_CODE] [--node NODE] [--user USER] [--quiet]
+Usage: $(basename "$0") [STORE_CODE] [--node NODE] [--user USER] [--forward LOCAL_PORT:LAN_IP:PORT] [--quiet]
 
 Starts sshuttle to a production store LAN. STORE_CODE is case-insensitive
 (hkcwbmid and HKCWBMID are equivalent) and works from any directory, without
@@ -142,6 +158,10 @@ Options:
                             PN_NODE.
   --user USER, --user=USER  SSH login user. Can also be set with PROD_SSH_USER.
                             Defaults to silica.
+  --forward LOCAL_PORT:LAN_IP:PORT
+                            Forward one TCP port on 127.0.0.1 without sudo.
+                            LAN_IP must be within the store subnet. Uses the
+                            SSH password file or noninteractive SSH auth.
   -q, --quiet               Suppress wrapper status output.
   --help                    Show this help.
 
@@ -211,6 +231,14 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
+    --forward)
+      if [[ -n "$FORWARD" || "${2:-}" != *:*:* ]]; then
+        error "Specify one --forward LOCAL_PORT:LAN_IP:PORT."
+        exit 1
+      fi
+      FORWARD="$2"
+      shift 2
+      ;;
     -q|--quiet)
       QUIET=1
       shift
@@ -243,9 +271,18 @@ if [[ -n "$STORE_REQUEST" ]]; then
   fi
 fi
 
-for command_name in kubectl ssh sshuttle nc bash stat; do
+for command_name in kubectl ssh nc bash stat; do
   require_command "$command_name"
 done
+if [[ -z "$FORWARD" ]]; then
+  require_command sshuttle
+elif [[ ! "$FORWARD" =~ ^([1-9][0-9]{0,4}):([0-9.]+):([1-9][0-9]{0,4})$ ]] ||
+  (( BASH_REMATCH[1] < 1024 || BASH_REMATCH[1] > 65535 || BASH_REMATCH[3] > 65535 )); then
+  error "--forward requires an unprivileged local port (1024-65535), a LAN IPv4 address, and a remote port (1-65535)."
+  exit 1
+else
+  FORWARD_IP="${BASH_REMATCH[2]}"
+fi
 
 USE_PASSWORD_FILE=0
 if [[ -n "$PASSWORD_FILE" ]]; then
@@ -336,6 +373,15 @@ if [[ ! "$CIDR" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$ ]] ||
   exit 1
 fi
 SSH_PORT=$((40000 + B))
+if [[ -n "$FORWARD" ]]; then
+  HOST_BITS=$((32 - ${CIDR#*/}))
+  if ! TARGET_ADDRESS=$(ipv4_number "$FORWARD_IP") ||
+    ! NETWORK_ADDRESS=$(ipv4_number "${CIDR%/*}") ||
+    (( (TARGET_ADDRESS >> HOST_BITS) != (NETWORK_ADDRESS >> HOST_BITS) )); then
+    error "Forward destination '${FORWARD_IP}' must be an IPv4 address within ${CIDR}."
+    exit 1
+  fi
+fi
 PORT_FORWARD_TARGET="svc/${STORE_ID}-ssh"
 if [[ -n "$NODE" ]]; then
   if ! NODE_POD=$(resolve_node_pod_name "$NODE"); then
@@ -387,19 +433,32 @@ fi
 
 # svc targets can route to different pods, so do not persist a host key for the
 # localhost endpoint; kubectl already authenticates the tunnel to Kubernetes.
-printf -v SSH_COMMAND '%q ' ssh \
+SSH_COMMAND=(ssh \
   -o UserKnownHostsFile=/dev/null \
   -o GlobalKnownHostsFile=/dev/null \
   -o StrictHostKeyChecking=no \
-  -o LogLevel=ERROR
+  -o LogLevel=ERROR)
 if [[ "$USE_PASSWORD_FILE" -eq 1 ]]; then
-  printf -v SSH_COMMAND '%q ' sshpass -f "$PASSWORD_FILE" ssh \
-    -o UserKnownHostsFile=/dev/null \
-    -o GlobalKnownHostsFile=/dev/null \
-    -o StrictHostKeyChecking=no \
-    -o LogLevel=ERROR
+  SSH_COMMAND=(sshpass -f "$PASSWORD_FILE" "${SSH_COMMAND[@]}")
+fi
+
+if [[ -n "$FORWARD" ]]; then
+  if [[ "$USE_PASSWORD_FILE" -eq 1 ]]; then
+    SSH_COMMAND+=(-o NumberOfPasswordPrompts=1)
+  else
+    SSH_COMMAND+=(-o BatchMode=yes)
+  fi
+  info "Forwarding 127.0.0.1:${FORWARD%%:*} to ${FORWARD#*:} through ${SSH_USER}@127.0.0.1:${SSH_PORT}"
+  "${SSH_COMMAND[@]}" -N -T -a -x -o ExitOnForwardFailure=yes -o ControlPath=none \
+    -L "127.0.0.1:${FORWARD}" -p "$SSH_PORT" -- "${SSH_USER}@127.0.0.1" &
+  SSH_FORWARD_PID=$!
+  wait "$SSH_FORWARD_PID"
+  SSH_FORWARD_STATUS=$?
+  SSH_FORWARD_PID=""
+  exit "$SSH_FORWARD_STATUS"
 fi
 
 info "Forwarding store LAN: ${CIDR}"
 info "Connecting sshuttle as ${SSH_USER}@127.0.0.1:${SSH_PORT}"
-sshuttle --ssh-cmd "$SSH_COMMAND" --remote "${SSH_USER}@127.0.0.1:${SSH_PORT}" "$CIDR"
+printf -v SSH_COMMAND_LINE '%q ' "${SSH_COMMAND[@]}"
+sshuttle --ssh-cmd "$SSH_COMMAND_LINE" --remote "${SSH_USER}@127.0.0.1:${SSH_PORT}" "$CIDR"
