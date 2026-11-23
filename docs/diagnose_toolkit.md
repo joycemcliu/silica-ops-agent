@@ -29,7 +29,10 @@ Ports: Nomad `4646`, Consul `8500`, PostgreSQL `5432`, and platform web access `
 
 ### Discover PCs and their roles
 
-In both dev and prod, use the selected store's Consul **Nodes** page to find node names and IP addresses. For example, the dev store's page is <http://<LAN IP>:8500/ui/dc1/nodes>. For prod, connect through `scripts/store-port-forward.sh` and use its printed Consul address, then open **Nodes**.
+Run `.venv/bin/python scripts/store-nodes.py --consul-addr HOST:PORT` to list node names, IP addresses, and role hints from the selected store's Consul catalog in one read-only query.
+
+- **Dev:** use one of the selected store's node IPs above on port `8500`.
+- **Prod:** use the selected store's existing Consul forward. If you need to open one, obtain tunnel permission and run `scripts/store-port-forward.sh STORE_CODE`, then pass its printed `CONSUL_ADDR` to the inventory command.
 
 Node names provide hints about their platform roles:
 
@@ -38,6 +41,8 @@ Node names provide hints about their platform roles:
 | `master`                          | Linux PC forming part of the Nomad, Consul, PostgreSQL, and Traefik server infrastructure.                    |
 | `video`                           | Windows PC for video rendering.                                                                               |
 | `exp`                             | Windows PC running Unity/Photon server services; may have a USB webcam connected.                             |
+| `mocap`                           | Windows PC that usually runs a motion capture server.                                                         |
+| `pi`                              | Linux PC.                                                                                                     |
 | `r<room-name>`                    | PC providing services for that room; for example, `r3` mostly handles room 3.                                 |
 | `h<room-name>`                    | Alias of `r<room-name>`; `h` means holodeck, the platform's name for a room.                                  |
 | `webcam`                          | Linux PC with a USB webcam connected.                                                                         |
