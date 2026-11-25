@@ -12,3 +12,4 @@
 | [sata-io-jetstream-launch-failure](docs/sata-io-jetstream-launch-failure.md)                           | Unity not launching; missing player Nomad job; SATA timeouts; stream or consumer quorum loss; launch-consumer panics                                                  | nats, experience-conductor, session-server, unity |
 | [missing-nomad-renderer](docs/missing-nomad-renderer.md) | All rooms stop rendering; queued tasks at zero progress; expected Nomad renderer job absent | video-server, video-dge-renderer, nomad, consul |
 | [experience-timer-host-clock-skew](docs/experience-timer-host-clock-skew.md) | Countdown at zero at tutorial start, expired end time, Windows clock skew | unity, experience-server, session-ui, windows-time |
+| [windows-docker-pull-temp-dir-missing](docs/windows-docker-pull-temp-dir-missing.md) | Windows image pull fails with GetImageBlob path error, Docker temp directory missing, Nomad prestart fails | docker, nomad, video-dge |
