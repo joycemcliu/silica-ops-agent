@@ -30,7 +30,7 @@ mcp_servers:
     args: [/ABS/PATH/silica-ops-agent/scripts/slack-history-mcp.py]
     env:
       SLACK_HISTORY_TOKEN_FILE: /ABS/PATH/.local/secrets/slack-history-token
-      SLACK_HISTORY_CHANNELS: C0123456789   # optional allowlist, comma-separated
+      SLACK_HISTORY_CHANNELS: C0123456789 # optional allowlist, comma-separated
 ```
 
 Codex (`~/.codex/config.toml`):
@@ -43,6 +43,22 @@ env = { SLACK_HISTORY_TOKEN_FILE = "/ABS/PATH/.local/secrets/slack-history-token
 ```
 
 Store the token alone in a file outside the repository, for example `install -m 600 /dev/null ~/.local/secrets/slack-history-token`, then paste it in. Keep the token out of MCP configs. `SLACK_HISTORY_TOKEN` also works but puts the secret in config. Set `SLACK_HISTORY_CHANNELS` to limit readable channels (the escalation channel at minimum).
+
+## Run once on a long-running host (optional)
+
+Instead of a stdio server per machine, run it as streamable HTTP on the WSL host and point other machines at it. The Slack token then lives only on that host.
+
+Run `scripts/bootstrap-wsl-host.sh` to do all of this in one step (needs `uv` and systemd; it stops and tells you if `~/.local/secrets/slack-history-token` is missing). Add `--harness` to also run `harness global` and `harness use`. The manual steps are:
+
+```bash
+install -m 600 /dev/null ~/.local/secrets/slack-history-mcp-http-token   # paste a long random string
+mkdir -p ~/.config/systemd/user && cp scripts/slack-history-mcp.service ~/.config/systemd/user/
+# set SLACK_HISTORY_CHANNELS in scripts/slack-history-mcp.env (KEY=value), then:
+systemctl --user daemon-reload && systemctl --user enable --now slack-history-mcp
+loginctl enable-linger "$USER"
+```
+
+The unit listens on `127.0.0.1:60010/mcp` and rejects requests without `Authorization: Bearer <http token>`. Reach it from the laptop with `ssh -N -L 60010:127.0.0.1:60010 <wsl-host>` rather than binding to a network interface. On the laptop, export `SLACK_HISTORY_MCP_TOKEN` and render `config/mcp-servers.remote.toml` with `scripts/render-mcp-config.py {codex,hermes} --registry config/mcp-servers.remote.toml`.
 
 ## Verification
 

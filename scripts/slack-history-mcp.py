@@ -1,9 +1,11 @@
-"""Read-only Slack history MCP server (stdio) for diagnosis agents.
+"""Read-only Slack history MCP server (stdio, or streamable HTTP with --http) for diagnosis agents.
 
 Exposes only read tools. Needs a read-scoped token from SLACK_HISTORY_TOKEN_FILE (preferred) or SLACK_HISTORY_TOKEN; it never posts.
 Optional SLACK_HISTORY_CHANNELS (comma-separated IDs) restricts readable channels.
 """
 
+import argparse
+import hmac
 import os
 import re
 import sys
@@ -118,8 +120,44 @@ async def search_messages(query: str, count: int = 20) -> dict:
     return {"matches": matches}
 
 
+class BearerAuth:
+    """ASGI middleware rejecting HTTP requests without the shared bearer token."""
+
+    def __init__(self, app, token):
+        self.app = app
+        self.expected = f"Bearer {token}".encode()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            given = dict(scope["headers"]).get(b"authorization", b"")
+            if not hmac.compare_digest(given, self.expected):
+                await send({"type": "http.response.start", "status": 401, "headers": [(b"content-type", b"text/plain")]})
+                await send({"type": "http.response.body", "body": b"unauthorized"})
+                return
+        await self.app(scope, receive, send)
+
+
+def serve_http(host, port):
+    path = os.environ.get("SLACK_HISTORY_HTTP_TOKEN_FILE")
+    token = os.environ.get("SLACK_HISTORY_HTTP_TOKEN") or (Path(path).expanduser().read_text().strip() if path else "")
+    if not token:
+        sys.exit("HTTP mode needs SLACK_HISTORY_HTTP_TOKEN_FILE (or SLACK_HISTORY_HTTP_TOKEN)")
+    import uvicorn
+
+    app = BearerAuth(mcp.streamable_http_app(), token)
+    uvicorn.run(app, host=host, port=port)
+
+
 if __name__ == "__main__":
-    if "--check" in sys.argv:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--http", action="store_true", help="serve streamable HTTP at /mcp instead of stdio")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=60010)
+    args = parser.parse_args()
+    if args.check:
         print("ok")
+    elif args.http:
+        serve_http(args.host, args.port)
     else:
         mcp.run()
