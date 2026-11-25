@@ -143,6 +143,11 @@ def serve_http(host, port):
     if not token:
         sys.exit("HTTP mode needs SLACK_HISTORY_HTTP_TOKEN_FILE (or SLACK_HISTORY_HTTP_TOKEN)")
     import uvicorn
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        # Host-header allowlisting only suits loopback; the bearer token guards remote access.
+        mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
     app = BearerAuth(mcp.streamable_http_app(), token)
     uvicorn.run(app, host=host, port=port)

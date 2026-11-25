@@ -55,4 +55,4 @@ if [ "${1:-}" = --harness ]; then
   (cd "$REPO" && harness use)
 fi
 
-log "from the laptop: ssh -N -L $PORT:127.0.0.1:$PORT <wsl-host>"
+log "laptop URL: http://<wsl-host-or-vpn-ip>:$PORT/mcp (needs WSL mirrored networking or a Windows portproxy, plus a firewall rule)"

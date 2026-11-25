@@ -7,7 +7,7 @@ WorkingDirectory=%h/silica-ops-agent
 Environment=SLACK_HISTORY_TOKEN_FILE=%h/.local/secrets/slack-history-token
 Environment=SLACK_HISTORY_HTTP_TOKEN_FILE=%h/.local/secrets/slack-history-mcp-http-token
 EnvironmentFile=-%h/silica-ops-agent/scripts/slack-history-mcp.env
-ExecStart=%h/silica-ops-agent/.venv/bin/python %h/silica-ops-agent/scripts/slack-history-mcp.py --http --host 127.0.0.1 --port 60010
+ExecStart=%h/silica-ops-agent/.venv/bin/python %h/silica-ops-agent/scripts/slack-history-mcp.py --http --host 0.0.0.0 --port 60010
 Restart=on-failure
 RestartSec=5
 UMask=0077

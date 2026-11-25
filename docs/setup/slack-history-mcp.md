@@ -58,7 +58,7 @@ systemctl --user daemon-reload && systemctl --user enable --now slack-history-mc
 loginctl enable-linger "$USER"
 ```
 
-The unit listens on `127.0.0.1:60010/mcp` and rejects requests without `Authorization: Bearer <http token>`. Reach it from the laptop with `ssh -N -L 60010:127.0.0.1:60010 <wsl-host>` rather than binding to a network interface. On the laptop, export `SLACK_HISTORY_MCP_TOKEN` and render `config/mcp-servers.remote.toml` with `scripts/render-mcp-config.py {codex,hermes} --registry config/mcp-servers.remote.toml`.
+The unit listens on `0.0.0.0:60010/mcp` and rejects requests without `Authorization: Bearer <http token>`; the bearer token is the only protection, so keep it secret and the port off the public internet. Plain HTTP also sends the token unencrypted, so use it only on the VPN. For loopback only, change the unit to `--host 127.0.0.1` and use `ssh -N -L 60010:127.0.0.1:60010 <wsl-host>`. WSL2 in NAT mode does not expose WSL ports to the VPN: set `networkingMode=mirrored` in `%UserProfile%\.wslconfig` (then `wsl --shutdown`) and allow TCP 60010 in Windows Firewall, or add a `netsh interface portproxy` rule on Windows. On the laptop, export `SLACK_HISTORY_MCP_TOKEN` and render `config/mcp-servers.remote.toml` with `scripts/render-mcp-config.py {codex,hermes} --registry config/mcp-servers.remote.toml`.
 
 ## Verification
 
