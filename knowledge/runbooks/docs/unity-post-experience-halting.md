@@ -47,12 +47,12 @@ Guests finish gameplay and the room stays in `Halting` after pose capture. The V
 
 ## Likely causes
 
-| Cause | Evidence that supports it | Evidence that weakens it |
-| --- | --- | --- |
-| Unity post-experience flow interrupted before render submission | Pose capture and scene load succeeded. Completion and render calls are missing, with an interruption visible in Unity. | Matching render intake or evidence of normal completion shifts the investigation downstream. |
-| Relaunch resumed at an earlier status | Relaunch reports `PostExperience` and persisted status is `Halting`, with HTTP 409. | Relaunch reports a permitted status and the update succeeds. |
-| Renderer or queue stall | Registered render tasks remain queued or fail with stage evidence. | Empty task map and no intake in an active log stream support an upstream explanation. |
-| Missing recording or rendering profile | Missing deployed profiles, empty loads or item lookups, with a successful comparator. [Missing registration runbook](missing-video-task-registration.md) | Successful recording submissions and a populated cache weaken a broad profile failure theory. The cache does not establish what Unity loaded. |
+| Cause                                                           | Evidence that supports it                                                                                                                                | Evidence that weakens it                                                                                                                      |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unity post-experience flow interrupted before render submission | Pose capture and scene load succeeded. Completion and render calls are missing, with an interruption visible in Unity.                                   | Matching render intake or evidence of normal completion shifts the investigation downstream.                                                  |
+| Relaunch resumed at an earlier status                           | Relaunch reports `PostExperience` and persisted status is `Halting`, with HTTP 409.                                                                      | Relaunch reports a permitted status and the update succeeds.                                                                                  |
+| Renderer or queue stall                                         | Registered render tasks remain queued or fail with stage evidence.                                                                                       | Empty task map and no intake in an active log stream support an upstream explanation.                                                         |
+| Missing recording or rendering profile                          | Missing deployed profiles, empty loads or item lookups, with a successful comparator. [Missing registration runbook](missing-video-task-registration.md) | Successful recording submissions and a populated cache weaken a broad profile failure theory. The cache does not establish what Unity loaded. |
 
 ## Remediation (HUMAN executes; agent never runs)
 

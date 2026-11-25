@@ -3,8 +3,8 @@ title: Missing DGE renderer job in Nomad
 slug: missing-nomad-renderer
 services: [video-server, video-dge-renderer, nomad, consul]
 tags: [rendering, nomad, terraform]
-status: draft
-last_verified:
+status: reviwed
+last_verified: 2026-11-25
 applies_to:
   video-dge-module: "0.4.6"
   video-module: "1.6.5"
@@ -27,12 +27,12 @@ source_incidents:
 
 ## Likely causes
 
-| Cause | Evidence that confirms | Evidence that rules out |
-| --- | --- | --- |
-| Renderer job missing from live Nomad | Correct store and namespace return HTTP 404, no allocations, and no renderer service registrations. Terraform declares the job and plans to create it. | The intended job exists in the affected namespace. |
-| Intentional deployment removal | The applicable config disables the job or an actual apply log shows it being destroyed. | The examined apply leaves the renderer in place and the current declaration enables it. This only covers the examined revision and apply. |
-| No eligible or working video nodes | The job exists, but Nomad reports placement failures or its allocations fail to start. | Eligible nodes can run new allocations after re-registration. |
-| Delivery stall with live workers | Workers are registered and healthy, but retained matching work and stagnant consumer delivery identify the queue handoff as the failure. | The affected store has no registered renderer job or workers. Check delivery separately if a backlog persists after recovery. |
+| Cause                                | Evidence that confirms                                                                                                                                 | Evidence that rules out                                                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Renderer job missing from live Nomad | Correct store and namespace return HTTP 404, no allocations, and no renderer service registrations. Terraform declares the job and plans to create it. | The intended job exists in the affected namespace.                                                                                        |
+| Intentional deployment removal       | The applicable config disables the job or an actual apply log shows it being destroyed.                                                                | The examined apply leaves the renderer in place and the current declaration enables it. This only covers the examined revision and apply. |
+| No eligible or working video nodes   | The job exists, but Nomad reports placement failures or its allocations fail to start.                                                                 | Eligible nodes can run new allocations after re-registration.                                                                             |
+| Delivery stall with live workers     | Workers are registered and healthy, but retained matching work and stagnant consumer delivery identify the queue handoff as the failure.               | The affected store has no registered renderer job or workers. Check delivery separately if a backlog persists after recovery.             |
 
 ## Remediation (HUMAN executes; agent never runs)
 

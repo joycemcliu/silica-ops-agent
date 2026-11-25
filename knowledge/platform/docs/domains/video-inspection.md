@@ -7,7 +7,7 @@ symptoms:
   - Video processing is pending or stalled
   - Video output is missing
 last_verified: 2026-11-17
-status: draft
+status: reviewed
 ---
 
 # Video inspection

@@ -3,8 +3,8 @@ title: Deadwood Origins highlights omit rendered player shots
 slug: dwo-highlight-missing-shot-aliases
 services: [unity, video-server, video-dge-renderer]
 tags: [highlight, webcam, alias, resume]
-status: draft
-last_verified:
+status: reviewed
+last_verified: 2026-11-25
 applies_to:
   experience: DeadwoodOrigins_1.1.1
   template: DWO_Highlight.aepx.tmpl
@@ -42,11 +42,11 @@ Player highlights render and upload, but the expected real-world footage is miss
 
 ## Likely causes
 
-| Cause | Evidence that confirms | Evidence that rules out |
-| --- | --- | --- |
-| Safety-net request omitted shot aliases | Unity fallback warnings and original requests missing all three aliases. Generated highlight references experience-folder files for those slots. | The generated highlight references all selected session shot outputs. |
-| Shot media missing or unusable | Missing NAS upload, failed playback, or missing webcam content in the selected shot. | The selected stored shot MP4s play with the expected footage. A historical upload alone establishes file delivery at that time. |
-| A late-game resume disrupted shot selection | A controlled reproduction or saved state comparison shows selection was lost or skipped on resume. | Selection state is preserved and produces valid aliases on the same resume path. |
+| Cause                                       | Evidence that confirms                                                                                                                           | Evidence that rules out                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Safety-net request omitted shot aliases     | Unity fallback warnings and original requests missing all three aliases. Generated highlight references experience-folder files for those slots. | The generated highlight references all selected session shot outputs.                                                           |
+| Shot media missing or unusable              | Missing NAS upload, failed playback, or missing webcam content in the selected shot.                                                             | The selected stored shot MP4s play with the expected footage. A historical upload alone establishes file delivery at that time. |
+| A late-game resume disrupted shot selection | A controlled reproduction or saved state comparison shows selection was lost or skipped on resume.                                               | Selection state is preserved and produces valid aliases on the same resume path.                                                |
 
 ## Remediation (HUMAN executes; agent never runs)
 

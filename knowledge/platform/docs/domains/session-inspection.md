@@ -6,7 +6,7 @@ services: [session-server]
 symptoms:
   - Session timing or status is unclear
 last_verified: 2026-11-17
-status: draft
+status: reviewed
 ---
 
 # Session inspection
