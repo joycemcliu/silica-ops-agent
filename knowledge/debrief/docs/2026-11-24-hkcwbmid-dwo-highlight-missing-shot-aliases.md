@@ -32,7 +32,7 @@ session_id: "codex 01a20b59-d6fd-7571-87e0-491a2c96d6d5"
 
 ## Blind spots
 
-- Original shot selections, reason for Unity exit, effect of resume on selection state, and guest playback after recovery.
+- Original shot selections, reason for Unity exit, effect of resume on selection state, and guest playback after recovery. The requester later reported a confirmed Unity bug. The exact engineering finding and any fix reference still need the Slack follow-up.
 
 ## Platform facts learned
 
