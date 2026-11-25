@@ -37,13 +37,14 @@ Times below are Hong Kong time unless otherwise stated. Queries ran through the 
 | E8 | observed | Same-store, same-version original highlight completion logs from Nov 19–22 | All 11 returned historical records included all three video aliases. For session `hkcwbmid-261122-G1-194638`, the ordered shots were P1 2, 9, 8 and P2 5, 2, 1. |
 | E9 | observed | Local video-server source, render request data and store gateway documentation | The regular rerender path reuses the saved task data. The render endpoint accepts an updated alias object and resets the task for the existing session and item. |
 | E10 | not-checked | Live NAS playback and replacement render | The six proposed shot outputs were not played back and recovery requests were not submitted by the agent. A later bounded log search found no additional highlight completions through Nov 24 at 10:30 HKT. |
-| E11 | observed | Requester follow-up in diagnosis DM on Nov 25 | The requester relayed that the issue was confirmed as a Unity bug and referred to the Slack escalation thread. The follow-up Slack message itself was unavailable through the diagnosis connection. |
+| E11 | observed | Requester follow-up in diagnosis DM on Nov 25 | The requester relayed that the issue was confirmed as a Unity bug and referred to the Slack escalation thread. The requester subsequently supplied Eric’s reply. |
+| E12 | observed | Eric’s Slack reply, excerpt supplied by the requester | Eric said he would investigate and expected he might need a new build to fix it. The excerpt provides a preliminary assessment. |
 
 ## Findings
 
 The immediate failure was in highlight assembly. Unity submitted both safety-net requests without aliases for the rendered player shots. After Effects completed the renders with experience-folder media references for the three P2 slots inspected. The raw webcam sample and the upstream shot renders demonstrate that capture and shot assembly ran, with scope limited to the files and logs inspected.
 
-The requester reported confirmation of a Unity bug. The diagnosis logs establish that Unity resumed before sending both fallback requests with the missing aliases. The exact bug mechanism, the role of the resume, and the cause of the Unity exit remain unverified from the available evidence.
+The requester reported a confirmed Unity bug. Eric’s reply indicates that he expects a new build may be needed and plans to investigate. The diagnosis logs establish that Unity resumed before sending both fallback requests with the missing aliases. The exact bug mechanism, the role of the resume, and the cause of the Unity exit remain unverified from the available evidence.
 
 ## Actions and recovery timeline
 
@@ -59,4 +60,4 @@ The requester reported confirmation of a Unity bug. The diagnosis logs establish
 
 ## Outcome and remaining work
 
-Recovery is unverified. An authorized DGE operator can preview the proposed or otherwise selected shot MP4s, preserve the existing highlight outputs, submit two corrected render requests, and verify both resulting videos. Capture the Unity confirmation and any linked bug or fix details from the escalation thread. Use them to update the prevention and validation steps.
+Recovery is unverified. An authorized DGE operator can preview the proposed or otherwise selected shot MP4s, preserve the existing highlight outputs, submit two corrected render requests, and verify both resulting videos. When engineering identifies the defect and a fix build is available, record the build version and validate highlight shot selection and output on the relevant gameplay path.
