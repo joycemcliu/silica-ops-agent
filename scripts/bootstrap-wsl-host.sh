@@ -55,4 +55,4 @@ if [ "${1:-}" = --harness ]; then
   (cd "$REPO" && harness use)
 fi
 
-log "laptop URL: http://<wsl-host-or-vpn-ip>:$PORT/mcp (needs WSL mirrored networking or a Windows portproxy, plus a firewall rule)"
+log "laptop URL: http://<wsl-tailnet-name>:$PORT/mcp (install Tailscale in WSL and on the laptop; see docs/setup/slack-history-mcp.md)"

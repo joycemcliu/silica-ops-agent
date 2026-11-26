@@ -43,6 +43,7 @@ def resolve(server):
         "url": server.get("url"),
         "host_header": server.get("host_header"),
         "bearer_env": server.get("bearer_token_env"),
+        "bearer_file": expand(server["bearer_token_file"]) if "bearer_token_file" in server else None,
         "command": expand(server["command"]) if "command" in server else None,
         "args": [expand(a) for a in server.get("args", [])],
         "env": env,
@@ -62,7 +63,10 @@ def render_codex(servers):
             out.append(f"url = {toml_str(s['url'])}")
             if s["host_header"]:
                 out.append(f"http_headers = {{ Host = {toml_str(s['host_header'])} }}")
-            if s["bearer_env"]:
+            if s["bearer_file"]:
+                helper = f"{REPO}/scripts/mcp-bearer-header.sh {s['bearer_file']}"
+                out.append(f"http_headers_helper = {toml_str(helper)}")
+            elif s["bearer_env"]:
                 out.append(f"bearer_token_env_var = {toml_str(s['bearer_env'])}")
         else:
             out.append(f"command = {toml_str(s['command'])}")
