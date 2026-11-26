@@ -1,0 +1,12 @@
+# Registry for machines that use MCP servers hosted on the WSL host instead of running them locally.
+# Render with: scripts/render-mcp-config.py codex --registry config/mcp-servers.remote.toml
+# Replace the URL with the WSL host's Tailscale name, e.g. http://wsl-host:60010/mcp.
+# Codex reads the token from bearer_token_file via scripts/mcp-bearer-header.sh; Hermes uses bearer_token_env.
+# Copy the host's slack-history-mcp-http-token file to bearer_token_file on this machine.
+
+[servers.slack_history]
+type = "http"
+url = "http://127.0.0.1:60010/mcp"
+bearer_token_file = "{home}/.local/secrets/slack-history-mcp-http-token"
+bearer_token_env = "SLACK_HISTORY_MCP_TOKEN"
+codex_approve_tools = ["get_thread", "get_channel_history", "search_messages"]

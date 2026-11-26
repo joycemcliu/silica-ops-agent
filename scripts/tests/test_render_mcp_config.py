@@ -38,6 +38,14 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("SLACK_HISTORY_CHANNELS", slack["env"])
         self.assertIn("SLACK_HISTORY_TOKEN_FILE", slack["env"])
 
+    def test_bearer_token_file_renders_codex_helper_and_hermes_env_header(self):
+        server = {"type": "http", "url": "http://h:1/mcp", "bearer_token_file": "{home}/tok", "bearer_token_env": "TOK"}
+        resolved = {"s": render.resolve(server)}
+        codex = tomllib.loads(render.render_codex(resolved))["mcp_servers"]["s"]
+        self.assertTrue(codex["http_headers_helper"].endswith(f"mcp-bearer-header.sh {Path.home()}/tok"))
+        self.assertNotIn("bearer_token_env_var", codex)
+        self.assertIn("Bearer ${TOK}", render.render_hermes(resolved))
+
     def test_hermes_output_names_match_codex(self):
         text = render.render_hermes(servers({"SLACK_HISTORY_CHANNELS": "C1"}))
         for name in ("grafana_mcp_ops_dev", "grafana_mcp_ops_prod", "slack_history"):
