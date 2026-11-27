@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import json
 import os
 import tempfile
 import unittest
@@ -29,6 +30,7 @@ def config(root=ROOT):
         "xoxp-test",
         "xapp-test",
         session_db=":memory:",
+        allowed_users=frozenset({"U123"}),
     )
 
 
@@ -74,13 +76,17 @@ class FakeCodex:
         self.thread_id = self.session_id
         self.instances.append(self)
 
-    async def start(self, instructions, resume_thread=None):
+    async def start(self, instructions, resume_thread=None, *, text_only=False, cwd=None):
         self.instructions = instructions
         self.resumed_thread = resume_thread
+        self.text_only = text_only
+        self.cwd = cwd
         return self.session_id
 
     async def turn(self, text):
         self.texts.append(text)
+        if self.text_only:
+            return "Channel reply" if "Slack mention" in self.instructions else "Draft RCA"
         return "finished debugging\nPR: https://example.test/pr/1"
 
     async def close(self):
@@ -150,7 +156,8 @@ class ConfigTests(unittest.TestCase):
             toolkit.mkdir()
             (toolkit / "config.env").write_text("SILICA_REPO=../silica\nSILICA_ENV_REPO=../env\n")
             env = {
-                "SLACK_DEBUG_USER_ID": "U123",
+                "SLACK_USER_TOKEN_OWNER_ID": "U123",
+                "SLACK_DEBUG_ALLOWED_USERS": "U456, U789",
                 "SLACK_DEBUG_CHANNEL_ID": "C123",
                 "SLACK_DEBUG_WORKSPACE_HOST": "example.slack.com",
                 "SLACK_DEBUG_CODEX_HOME": str(home),
@@ -165,6 +172,11 @@ class ConfigTests(unittest.TestCase):
                 loaded = Config.load(toolkit)
                 self.assertEqual(loaded.codex_bin, "/test/codex")
                 self.assertEqual(loaded.activity_mode, "summary")
+                self.assertEqual(loaded.history_token_owner_id, "U123")
+                self.assertFalse(loaded.allows("U123"))
+                self.assertTrue(loaded.allows("U456"))
+                with patch.dict(os.environ, {"SLACK_DEBUG_ALLOWED_USERS": ""}):
+                    self.assertFalse(Config.load(toolkit).allows("U123"))
                 with patch.dict(os.environ, {"SLACK_DEBUG_ACTIVITY": "off"}):
                     self.assertEqual(Config.load(toolkit).activity_mode, "off")
                 with patch.dict(os.environ, {"SLACK_DEBUG_ACTIVITY": "invalid"}):
@@ -225,6 +237,21 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.user.reads)
         self.assertIn("not allowed", self.bot.posts[-1]["text"])
 
+    async def test_history_token_owner_needs_explicit_bot_access(self):
+        self.manager.config = dataclasses.replace(
+            self.manager.config, allowed_users=frozenset({"U456"})
+        )
+        await self.manager.message(event("Hello"), "dm")
+        self.manager.mention({
+            "user": "U123", "channel": "C123", "ts": "1", "text": "<@UBOT> Hello",
+        }, "mention", "UBOT")
+        respond = AsyncMock()
+        await self.manager.command({"user_id": "U123", "command": "/diagnose"}, respond)
+        self.assertFalse(self.manager.sessions)
+        self.assertFalse(self.manager.mention_tasks)
+        self.assertFalse(self.bot.posts)
+        self.assertIn("not authorized", respond.await_args.args[0])
+
     async def test_followup_reuses_session_and_duplicate_is_ignored(self):
         await self.manager.message(event(), "first")
         await self.manager.message(event(), "first")
@@ -254,6 +281,164 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.user.reads[0]["channel"], "C123")
         self.assertTrue(self.bot.posts[0]["text"].startswith("working on thread"))
         self.assertIn("Issue thread JSON:", FakeCodex.instances[0].texts[0])
+
+    async def test_channel_mentions_reply_in_thread_once_without_private_tools(self):
+        self.bot.pages = [
+            {
+                "messages": [{"user": "U123", "text": "The thread opener", "ts": "3"}],
+                "response_metadata": {"next_cursor": "next"},
+            },
+            {"messages": [
+                {"user": "U999", "text": "The current mention", "ts": "4"},
+                {"user": "U999", "text": "A later reply", "ts": "5"},
+            ]},
+        ]
+        mention = {
+            "user": "U123", "channel": "C999", "ts": "2", "text": "Hello <@UBOT>",
+        }
+        for change in (
+            {"channel": "D999"}, {"bot_id": "B123"}, {"user": "UBOT"},
+            {"text": "Hello <@U123>"},
+        ):
+            self.manager.mention({**mention, **change}, "ignored", "UBOT")
+        self.manager.mention(mention, "root-mention", "UBOT")
+        self.manager.mention(mention, "root-mention", "UBOT")
+        self.manager.mention(
+            {**mention, "channel": "G999", "ts": "4", "thread_ts": "3", "text": "<@UBOT> Hi"},
+            "thread-mention", "UBOT",
+        )
+        await until(lambda: not self.manager.mention_tasks)
+        self.assertCountEqual(
+            [(post["channel"], post["thread_ts"], post["text"]) for post in self.bot.posts],
+            [("C999", "2", "Channel reply"), ("G999", "3", "Channel reply")],
+        )
+        self.assertCountEqual(
+            [json.loads(client.texts[0]) for client in FakeCodex.instances],
+            [
+                {"mention": "Hello", "earlier_messages": []},
+                {"mention": "Hi", "earlier_messages": [{"author": "U123", "text": "The thread opener"}]},
+            ],
+        )
+        for client in FakeCodex.instances:
+            self.assertTrue(client.text_only)
+            self.assertNotEqual(Path(client.cwd), self.manager.config.root)
+            self.assertTrue(client.closed)
+        self.assertFalse(self.user.reads)
+        self.assertEqual([(read["channel"], read["ts"], read["latest"]) for read in self.bot.reads],
+                         [("G999", "3", "4"), ("G999", "3", "4")])
+        self.assertEqual(self.bot.reads[-1]["cursor"], "next")
+        self.assertFalse(self.manager.sessions)
+
+    async def test_channel_mention_still_replies_if_history_is_unavailable(self):
+        self.bot.conversations_replies = AsyncMock(side_effect=RuntimeError("Could not read thread"))
+        self.manager.mention({
+            "user": "U123", "channel": "C999", "thread_ts": "1", "ts": "2",
+            "text": "<@UBOT> Please explain",
+        }, "mention", "UBOT")
+        await until(lambda: not self.manager.mention_tasks)
+        self.assertEqual(self.bot.posts[0]["thread_ts"], "1")
+        self.assertEqual(json.loads(FakeCodex.instances[0].texts[0]), {
+            "mention": "Please explain", "earlier_messages": [],
+        })
+
+    async def test_mention_debug_and_report_from_same_thread_or_link(self):
+        class PreliminaryCodex(FakeCodex):
+            async def turn(self, text):
+                if self.text_only:
+                    return await super().turn(text)
+                return "Suspected cause with evidence; one check is still open."
+
+        self.manager.codex_factory = PreliminaryCodex
+        self.bot.conversations_open = AsyncMock(return_value={"channel": {"id": "D123"}})
+        origin = "1794800002.000001"
+        channel_mention = {
+            "user": "U123", "channel": "C999", "thread_ts": origin, "ts": "1794800003.000001",
+            "text": f"<@UBOT> debug <{URL}|incident>",
+        }
+        self.manager.mention(channel_mention, "start-mention", "UBOT")
+        await until(lambda: len(self.bot.posts) == 4)
+        self.bot.conversations_open.assert_awaited_once_with(users="U123")
+        dm_thread = next(post["thread_ts"] for post in self.bot.posts if "working on thread" in post["text"])
+        self.assertTrue(any(post.get("thread_ts") == origin and "Started the diagnosis" in post["text"]
+                            for post in self.bot.posts))
+        self.assertFalse(any(post["channel"] == "C999" and "Suspected" in post["text"]
+                             for post in self.bot.posts))
+
+        self.bot.pages = [{"messages": []}] * 3
+        same_thread = {**channel_mention, "text": "<@UBOT> report", "ts": "1794800004.000001"}
+        self.manager.mention(same_thread, "same-thread-report", "UBOT")
+        await until(lambda: not self.manager.mention_tasks and not self.manager.report_tasks)
+        reply = "https://example.slack.com/archives/C999/p1794800003000001?thread_ts=" + origin
+        self.manager.mention(
+            {**same_thread, "channel": "C777", "text": f"<@UBOT> report <{reply}|thread>"},
+            "linked-report", "UBOT",
+        )
+        await until(lambda: not self.manager.mention_tasks and not self.manager.report_tasks)
+        await self.manager.message(
+            event(f"<@UBOT> report {URL}", ts="1794800005.000001"), "incident-link-report", "UBOT"
+        )
+        await until(lambda: not self.manager.report_tasks)
+        drafts = [post for post in self.bot.posts if post["text"] == "Draft RCA"]
+        self.assertEqual([(post["channel"], post["thread_ts"]) for post in drafts],
+                         [("D123", dm_thread)] * 3)
+        for client in FakeCodex.instances[1:]:
+            self.assertIn("one check is still open", client.texts[0])
+
+    async def test_slash_workflows_use_owned_dm_and_preserve_findings_on_restart(self):
+        await self.manager.close()
+        self.manager.store.close()
+        with tempfile.TemporaryDirectory() as directory:
+            settings = dataclasses.replace(
+                config(), allowed_users=frozenset({"U123", "U456"}), session_db=Path(directory) / "state",
+            )
+            self.manager = Manager(settings, self.bot, self.user, FakeCodex)
+            self.bot.conversations_open = AsyncMock(return_value={"channel": {"id": "D456"}})
+            root_ts = event()["ts"]
+            original_post = self.bot.chat_postMessage
+
+            async def post(**payload):
+                result = await original_post(**payload)
+                if "thread_ts" not in payload:
+                    result["ts"] = root_ts
+                return result
+
+            self.bot.chat_postMessage = post
+            respond = AsyncMock()
+            command = {
+                "command": "/diagnose", "text": URL, "user_id": "U456",
+                "channel_id": "C999", "trigger_id": "debug-trigger",
+            }
+            await self.manager.command(command, respond)
+            await self.manager.command(command, respond)
+            self.bot.conversations_open.assert_awaited_once_with(users="U456")
+            await until(lambda: len(self.bot.posts) == 3)
+            button = self.bot.posts[-1]["blocks"][-1]["elements"][0]
+            self.assertEqual(button["action_id"], "debug_draft_rca")
+            self.assertEqual(button["value"], root_ts)
+            with self.assertRaisesRegex(ValueError, "not found"):
+                self.manager.queue_rca("U123", "D456", root_ts)
+            await self.manager.close()
+            self.manager.store.close()
+            self.manager = Manager(settings, self.bot, self.user, FakeCodex)
+            self.bot.pages = [{"messages": [
+                {"user": "U456", "text": "Recovery confirmed", "ts": "2"},
+                {"user": "B123", "bot_id": "B123", "text": "Command details", "ts": "3"},
+            ]}]
+            link = f"https://example.slack.com/archives/D456/p{root_ts.replace('.', '')}"
+            report = {**command, "command": "/report", "text": link, "trigger_id": "report-trigger"}
+            await self.manager.command({**report, "user_id": "U123", "trigger_id": "other"}, respond)
+            self.assertFalse(self.bot.reads)
+            self.assertIn("not found", respond.await_args.args[0])
+            await self.manager.command(report, respond)
+            await until(lambda: not self.manager.report_tasks)
+            report_client = FakeCodex.instances[-1]
+            self.assertTrue(report_client.text_only)
+            self.assertIn("Recovery confirmed", report_client.texts[0])
+            self.assertIn("https://example.test/pr/1", report_client.texts[0])
+            self.assertNotIn("Command details", report_client.texts[0])
+            self.assertEqual(self.bot.posts[-1]["thread_ts"], root_ts)
+            self.assertEqual(self.bot.posts[-1]["text"], "Draft RCA")
+            self.manager.store.close()
 
     async def test_concurrent_sessions_keep_followups_separate(self):
         self.user.pages *= 2
@@ -299,6 +484,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("failed:", self.bot.posts[-1]["text"])
 
     async def test_long_command_and_approval_identity(self):
+        self.manager.config = dataclasses.replace(
+            self.manager.config, allowed_users=frozenset({"U123", "U999"})
+        )
         session = Session(self.manager, "D123", "thread", URL, "")
         command = "echo '<!channel>'\n" + "x" * 9000
         task = asyncio.create_task(

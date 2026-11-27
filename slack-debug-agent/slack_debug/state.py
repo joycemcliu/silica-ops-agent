@@ -34,11 +34,13 @@ class SessionStore:
             path.chmod(0o600)
         self.db = sqlite3.connect(str(path))
         self.db.row_factory = sqlite3.Row
-        self.scope = json.dumps([
-            config.workspace_host, config.user_id, config.channel_id,
+        self.namespace = [
+            config.workspace_host, config.history_token_owner_id, config.channel_id,
             str(config.root), str(config.silica_repo), str(config.env_repo),
             str(config.codex_home), config.profile_name,
-        ])
+        ]
+        self.owner = config.history_token_owner_id
+        self.scope = self.owner_scope(self.owner)
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 scope TEXT NOT NULL, channel TEXT NOT NULL, slack_thread TEXT NOT NULL,
@@ -49,7 +51,25 @@ class SessionStore:
                 scope TEXT NOT NULL, identity TEXT NOT NULL,
                 PRIMARY KEY (scope, identity)
             );
+            CREATE TABLE IF NOT EXISTS findings (
+                id INTEGER PRIMARY KEY,
+                scope TEXT NOT NULL, channel TEXT NOT NULL, slack_thread TEXT NOT NULL,
+                text TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS findings_by_thread
+            ON findings (scope, channel, slack_thread, id);
+            CREATE TABLE IF NOT EXISTS thread_links (
+                scope TEXT NOT NULL, source_channel TEXT NOT NULL, source_thread TEXT NOT NULL,
+                dm_channel TEXT NOT NULL, dm_thread TEXT NOT NULL,
+                PRIMARY KEY (scope, source_channel, source_thread)
+            );
         """)
+
+    def owner_scope(self, owner):
+        # Keep the original owner's keys compatible and bind new keys to both identities.
+        return json.dumps(
+            self.namespace if owner == self.owner else [*self.namespace, owner]
+        )
 
     def claim_event(self, identity):
         with self.db:
@@ -62,15 +82,46 @@ class SessionStore:
     def save(self, session):
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO sessions VALUES (?, ?, ?, ?, ?, ?)", (
-                self.scope, session.channel, session.thread, session.url, session.target_ts,
+                self.owner_scope(getattr(session, "owner", self.owner)),
+                session.channel, session.thread, session.url, session.target_ts,
                 session.codex.thread_id,
             ))
 
-    def find(self, channel, thread):
+    def find(self, channel, thread, owner=None):
         return self.db.execute(
             "SELECT * FROM sessions WHERE scope = ? AND channel = ? AND slack_thread = ?",
-            (self.scope, channel, thread),
+            (self.owner_scope(owner or self.owner), channel, thread),
         ).fetchone()
+
+    def save_finding(self, session, text):
+        with self.db:
+            self.db.execute(
+                "INSERT INTO findings (scope, channel, slack_thread, text) VALUES (?, ?, ?, ?)",
+                (self.owner_scope(session.owner), session.channel, session.thread, text),
+            )
+
+    def link_thread(self, session, channel, thread):
+        with self.db:
+            self.db.execute("""
+                INSERT INTO thread_links VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (scope, source_channel, source_thread) DO UPDATE SET
+                    dm_channel = excluded.dm_channel, dm_thread = excluded.dm_thread
+                WHERE excluded.dm_thread >= thread_links.dm_thread
+            """, (self.owner_scope(session.owner), channel, thread, session.channel, session.thread))
+
+    def linked_thread(self, owner, channel, thread):
+        return self.db.execute(
+            "SELECT dm_channel, dm_thread FROM thread_links "
+            "WHERE scope = ? AND source_channel = ? AND source_thread = ?",
+            (self.owner_scope(owner), channel, thread),
+        ).fetchone()
+
+    def findings(self, channel, thread, owner):
+        return [row["text"] for row in self.db.execute(
+            "SELECT text FROM findings WHERE scope = ? AND channel = ? AND slack_thread = ? "
+            "ORDER BY id",
+            (self.owner_scope(owner), channel, thread),
+        )]
 
     def close(self):
         self.db.close()

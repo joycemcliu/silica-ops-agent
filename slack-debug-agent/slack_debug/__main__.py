@@ -36,16 +36,42 @@ async def run(config):
     bot = AsyncWebClient(token=config.bot_token, timeout=30)
     user = AsyncWebClient(token=config.user_token, timeout=30)
     bot_auth, user_auth = await asyncio.gather(bot.auth_test(), user.auth_test())
-    if bot_auth["team_id"] != user_auth["team_id"] or user_auth["user_id"] != config.user_id:
+    if (
+        bot_auth["team_id"] != user_auth["team_id"]
+        or user_auth["user_id"] != config.history_token_owner_id
+    ):
         raise ValueError(
-            "Bot and user tokens must belong to the same workspace and configured user."
+            "Bot and user tokens must belong to the same workspace, and SLACK_USER_TOKEN "
+            "must belong to SLACK_USER_TOKEN_OWNER_ID."
         )
     manager = Manager(config, bot, user)
     app = AsyncApp(client=bot)
 
     @app.event("message")
     async def message(event, body):
-        await manager.message(event, body.get("event_id"))
+        await manager.message(event, body.get("event_id"), bot_auth["user_id"])
+
+    @app.event("app_mention")
+    async def app_mention(event, body):
+        manager.mention(event, body.get("event_id"), bot_auth["user_id"])
+
+    @app.command("/diagnose")
+    @app.command("/report")
+    async def command(ack, body, respond):
+        await ack()
+        await manager.command(body, respond)
+
+    @app.action("debug_draft_rca")
+    async def draft_rca(ack, body, respond):
+        await ack()
+        try:
+            manager.queue_rca(
+                body.get("user", {}).get("id"),
+                body.get("channel", {}).get("id"),
+                body["actions"][0]["value"],
+            )
+        except ValueError as error:
+            await respond(str(error))
 
     @app.action("debug_approve")
     @app.action("debug_deny")

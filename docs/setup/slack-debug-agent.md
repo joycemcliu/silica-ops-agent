@@ -1,12 +1,12 @@
 ---
 title: "Set up the Slack debug agent"
-description: "Test the private diagnosis listener on macOS or deploy it on the Ubuntu office PC."
+description: "Configure and deploy the private Slack diagnosis and RCA listener."
 tags: [slack, codex, diagnosis, macos, ubuntu, systemd, approvals]
 ---
 
 # Set up the Slack debug agent
 
-Run one listener for one authorized Slack user. The bot handles general conversations in private DM threads. For incident requests, it reads issues from the configured escalation channel with a user token and follows the [shared diagnosis workflow](../diagnose_agent.md) and [Slack behavior](../diagnose_agent_in_slack.md), including documentation branches, PR creation, and worktree cleanup.
+Run one listener for the operators listed in `SLACK_DEBUG_ALLOWED_USERS`. The bot handles private DM conversations and answers direct mentions in channels it has joined. For incident requests, it reads the configured escalation channel using the history credential owner's token and follows the [shared diagnosis workflow](../diagnose_agent.md) and [Slack behavior](../diagnose_agent_in_slack.md), including documentation branches, PR creation, and worktree cleanup.
 
 ## Prerequisites
 
@@ -21,10 +21,11 @@ Run one listener for one authorized Slack user. The bot handles general conversa
 
 ### Slack app and tokens
 
-1. Create an internal app using `slack-debug-agent/slack-app-manifest.json`. Socket Mode, interactivity, the Messages tab, and `message.im` are configured there; no public URL is required.
-2. For a public escalation channel, keep user scopes `channels:history` and `channels:read`. For a private channel, replace them with `groups:history` and `groups:read`, and ensure the authorized human can read it. Never add write scopes to the user token or invite the bot into the escalation channel.
-3. Install the app and obtain its `xoxb-` bot token and the authorized human's `xoxp-` user token. Generate an app-level `xapp-` token with `connections:write`. Token rotation is not implemented in v1.
-4. Record the authorized user's ID, escalation channel ID, and workspace hostname (for example `your-workspace.slack.com`). Startup checks that the bot and user tokens belong to the same team and that the user token belongs to the configured user.
+1. Create an internal app using `slack-debug-agent/slack-app-manifest.json`. For an existing installation, update the manifest and reinstall the app to grant the updated bot scopes, including `channels:history` and `groups:history` for channel thread context. Socket Mode delivers events, slash commands, and interactions without a public URL.
+2. For a public escalation channel, keep user scopes `channels:history` and `channels:read`. For a private channel, replace them with `groups:history` and `groups:read`, and ensure the history credential owner can read it. Keep the user token read-only.
+3. Install the app and obtain its `xoxb-` bot token and the history credential owner's `xoxp-` user token. Generate an app-level `xapp-` token with `connections:write`. Token rotation is not implemented in v1.
+4. Set `SLACK_USER_TOKEN_OWNER_ID` to the history token owner's Slack member ID. Record the escalation channel ID and workspace hostname (for example `your-workspace.slack.com`). Startup checks that both tokens belong to the same workspace and that the user token belongs to the configured owner. For an upgrade, rename `SLACK_DEBUG_USER_ID` to `SLACK_USER_TOKEN_OWNER_ID` in the service environment.
+5. Set `SLACK_DEBUG_ALLOWED_USERS` to a comma-separated list of Slack member IDs, such as `U0123ABC,U0456DEF`. This list controls DMs, channel mentions, slash commands, and interactive actions. Each listed person can see escalation evidence and approve Codex operations in their own DM runs under the service account. Include the history token owner if they need bot access. An empty or missing list grants access to nobody.
 
 ### Python and Codex
 
@@ -137,15 +138,15 @@ Keep the terminal open and DM the bot `help debugging on <issue-permalink>`. Con
 
 ### Persistent conversations
 
-Persistence is enabled for new sessions automatically. Keep `SLACK_DEBUG_CODEX_HOME` stable: Codex stores the conversation history there, and the listener stores thread mappings and event IDs in `./slack-debug-agent/state/sessions.sqlite3`. The database path resolves from the toolkit root, independently of the listener’s working directory. The database is created with mode `600` inside a directory created with mode `700`; the entire state directory is ignored by Git. If the local database does not exist, startup imports an existing `<CODEX_HOME>/slack-debug/sessions.sqlite3` using SQLite backup and keeps the old file intact. An existing local database is never overwritten by that import. Stop any older listener before upgrading. It does not store Slack tokens, issue bodies, or reply text. Native Codex history can contain investigation data and command output; protect and back up both the local state directory and the Codex home. No new packages or Slack permissions are required for persistence.
+Persistence is enabled for new sessions automatically. Keep `SLACK_DEBUG_CODEX_HOME` stable. Codex stores the conversation history there, and the listener stores thread mappings, event IDs, and completed diagnosis findings and follow-ups in `./slack-debug-agent/state/sessions.sqlite3`. The database path resolves from the toolkit root, independently of the listener’s working directory. The database is created with mode `600` inside a directory created with mode `700`. The entire state directory is ignored by Git. If the local database does not exist, startup imports an existing `<CODEX_HOME>/slack-debug/sessions.sqlite3` using SQLite backup and keeps the old file intact. An existing local database is never overwritten by that import. Stop any older listener before upgrading. Both the state database and native Codex history can contain incident information. Protect and back up both directories.
 
-After a listener restart, send `continue` or your next question in the original DM thread. Resumption is on demand; the listener does not automatically replay operations. Pending approvals, questions, and queued replies must be reissued. Saved mappings are scoped to workspace, authorized user, escalation channel, toolkit and repository paths, Codex home, and profile name, so changing those settings may make earlier mappings unavailable. If native history is missing, resumption reports failure and retains the mapping; it does not silently start a new conversation. Sessions created before this feature used ephemeral history and cannot be recovered by this update.
+After a listener restart, send `continue` or your next question in the original DM thread. Resumption is on demand; the listener does not automatically replay operations. Pending approvals, questions, and queued replies must be reissued. Saved mappings are scoped to workspace, history token owner, requester, escalation channel, toolkit and repository paths, Codex home, and profile name. Adding teammates does not migrate or reset the history token owner's original mappings. If native history is missing, resumption reports failure and retains the mapping. Sessions created before persistence used ephemeral history and cannot be recovered.
 
 ### MCP input requests
 
 The listener handles `mcpServer/elicitation/request` for `form`, `openai/form`, `openaiForm`, and `url` modes. Form requests show the server name, message, and JSON schema in the originating DM thread. Reply with a matching JSON object (`{}` for an empty form), or `decline` or `cancel`. Invalid replies are rejected and can be retried. URL requests display an HTTPS URL for you to open manually; complete the browser interaction and reply `accept`, or decline/cancel. Never put credentials in DM replies.
 
-Only the configured user can answer. Requests are serialized per session so each reply answers one question. An unanswered request cancels after ten minutes, allowing Codex to continue. Invalid, unsupported, referenced, oversized, and explicitly secret-input schemas are declined with an explanation instead of an unsupported-request session failure.
+Only the requester can answer. Requests are serialized per session so each reply answers one question. An unanswered request cancels after ten minutes, allowing Codex to continue. Invalid, unsupported, referenced, oversized, and explicitly secret-input schemas are declined with an explanation instead of an unsupported-request session failure.
 
 After updating, rerun `uv pip install --python .venv/bin/python -r slack-debug-agent/requirements.txt` to install the new JSON Schema validator, then restart the listener. No additional Slack permissions are needed.
 
@@ -207,13 +208,25 @@ No live Slack, production diagnosis, remote push/PR, or Ubuntu systemd acceptanc
 
 Start a general conversation by sending a top-level DM to the bot, such as `Explain how Slack threads work`. Reply in that message's thread to keep the conversation context. Send another top-level DM to start a separate conversation.
 
-To investigate an issue, send a top-level DM with the escalation message's permalink:
+To enable channel replies, use `/invite @Silica debug agent` in the channel, then mention the bot in a channel message or thread from a configured operator account. In a thread, the bot uses the opener and up to 11 recent earlier messages as context. If Slack history is unavailable, it answers using the mention itself.
+
+For a production escalation, authorized operators can use these mentions.
+
+- `@Silica debug agent debug <incident-permalink>` starts a diagnosis. The bot acknowledges the request in the Slack thread and sends findings, questions, and approvals to the requester's DM.
+- `@Silica debug agent report` in the same thread drafts an RCA for the requester's latest diagnosis linked to that thread. Request the draft once a diagnosis reply has enough evidence.
+- `@Silica debug agent report <slack-thread-permalink>` works from another channel the bot has joined or from a DM with the bot. Copy the link to the thread where you requested the diagnosis, the linked incident thread, or your diagnosis DM thread.
+
+The draft goes to the requester's diagnosis DM thread. Continue the investigation there and request a fresh draft when more evidence is available.
+
+To investigate directly from a DM, send the escalation message's permalink in a top-level message:
 
 ```text
 help debugging on https://your-workspace.slack.com/archives/CHANNEL_ID/pMESSAGE_TIMESTAMP
 ```
 
 Shorthand such as `debug <issue-permalink>` or `please debug <issue-permalink>` also starts an investigation. The bot validates links submitted through these commands. The final diagnosis report includes symptom, suspected cause, evidence, added or updated repository-relative file paths, and a PR URL.
+
+From the main Slack composer, run `/diagnose <incident-permalink>` to start a new private DM thread. After a diagnosis reply, click **Draft RCA** below it or use `/report <slack-thread-permalink>`. Both paths post a draft in the original DM. The report uses the requester's messages and saved findings and follow-ups. The listener starts a separate, read-only Codex thread for the [RCA workflow](../report_agent_in_slack.md), with command execution, MCP servers, and web search disabled. For a run created before findings were saved, ask for updated findings in the original DM before requesting a report.
 
 In either kind of thread, use **✅ Approve** or **❌ Deny** for sandbox decisions. Use **💬 Others** to enter instructions in a Slack form. Submitting declines the operation and queues your instructions for the agent's next turn. The listener applies the same Codex profile and approval policy to both kinds of conversation. Ordinary messages never approve commands.
 

@@ -25,7 +25,10 @@ class Codex:
         self.stderr = None
         self.items = {}
 
-    async def start(self, instructions, resume_thread=None):
+    async def start(self, instructions, resume_thread=None, *, text_only=False, cwd=None):
+        cwd = cwd or self.config.root
+        approval = "never" if text_only else "on-request"
+        sandbox = "read-only" if text_only else "workspace-write"
         self.process = await asyncio.create_subprocess_exec(
             self.config.codex_bin,
             "app-server",
@@ -37,11 +40,11 @@ class Codex:
             "--disable",
             "multi_agent_v2",
             "-c",
-            'approval_policy="on-request"',
+            f'approval_policy="{approval}"',
             "-c",
             'approvals_reviewer="user"',
             "-c",
-            'sandbox_mode="workspace-write"',
+            f'sandbox_mode="{sandbox}"',
             "-c",
             "sandbox_workspace_write.network_access=false",
             "-c",
@@ -50,7 +53,7 @@ class Codex:
             "sandbox_workspace_write.exclude_tmpdir_env_var=true",
             "-c",
             "sandbox_workspace_write.exclude_slash_tmp=true",
-            cwd=self.config.root,
+            cwd=cwd,
             env=self.config.child_environment(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
@@ -67,9 +70,9 @@ class Codex:
         # Apply the profile through the thread configuration to overlay the base home config.
         overrides = {
             **self.config.profile_config,
-            "approval_policy": "on-request",
+            "approval_policy": approval,
             "approvals_reviewer": "user",
-            "sandbox_mode": "workspace-write",
+            "sandbox_mode": sandbox,
             "sandbox_workspace_write": {
                 **self.config.profile_config.get("sandbox_workspace_write", {}),
                 "network_access": False,
@@ -84,11 +87,24 @@ class Codex:
                 "multi_agent_v2": False,
             },
         }
+        if text_only:
+            effective = await self.call("config/read", {"cwd": str(cwd)})
+            servers = {
+                **(effective["config"].get("mcp_servers") or {}),
+                **overrides.get("mcp_servers", {}),
+            }
+            overrides["mcp_servers"] = {name: {"enabled": False} for name in servers}
+            overrides["web_search"] = "disabled"
+            overrides["project_doc_max_bytes"] = 0
+            overrides["features"].update(
+                shell_tool=False, apply_patch_freeform=False, view_image=False,
+                apps=False, plugins=False, skill_mcp_dependency_install=False,
+            )
         params = {
-            "cwd": str(self.config.root),
-            "approvalPolicy": "on-request",
+            "cwd": str(cwd),
+            "approvalPolicy": approval,
             "approvalsReviewer": "user",
-            "sandbox": "workspace-write",
+            "sandbox": sandbox,
             "developerInstructions": instructions,
             "config": overrides,
         }
@@ -96,7 +112,7 @@ class Codex:
             params["threadId"] = resume_thread
             params["excludeTurns"] = True
         else:
-            params["ephemeral"] = False
+            params["ephemeral"] = text_only
         result = await self.call("thread/resume" if resume_thread else "thread/start", params)
         self.thread_id = result["thread"]["id"]
         if resume_thread and self.thread_id != resume_thread:

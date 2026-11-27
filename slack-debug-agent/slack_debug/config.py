@@ -26,7 +26,7 @@ class Config:
     env_repo: Path
     codex_home: Path
     codex_bin: str
-    user_id: str
+    history_token_owner_id: str
     channel_id: str
     workspace_host: str
     bot_token: str = field(repr=False)
@@ -36,6 +36,10 @@ class Config:
     profile_config: dict = field(default_factory=dict, repr=False)
     activity_mode: str = "summary"
     session_db: Path | str | None = None
+    allowed_users: frozenset[str] = frozenset()
+
+    def allows(self, user):
+        return user in self.allowed_users
 
     @classmethod
     def load(cls, root: Path, profile: str | None = None):
@@ -62,10 +66,14 @@ class Config:
         activity_mode = os.environ.get("SLACK_DEBUG_ACTIVITY", "summary").strip()
         if activity_mode not in ("off", "summary"):
             raise ValueError("SLACK_DEBUG_ACTIVITY must be off or summary.")
-        user, channel = required("SLACK_DEBUG_USER_ID"), required("SLACK_DEBUG_CHANNEL_ID")
+        token_owner = required("SLACK_USER_TOKEN_OWNER_ID")
+        channel = required("SLACK_DEBUG_CHANNEL_ID")
         host = required("SLACK_DEBUG_WORKSPACE_HOST")
-        if not re.fullmatch(r"[UW][A-Z0-9]+", user):
-            raise ValueError("Invalid SLACK_DEBUG_USER_ID.")
+        if not re.fullmatch(r"[UW][A-Z0-9]+", token_owner):
+            raise ValueError("Invalid SLACK_USER_TOKEN_OWNER_ID.")
+        allowed_users = frozenset(os.environ.get("SLACK_DEBUG_ALLOWED_USERS", "").replace(",", " ").split())
+        if any(not re.fullmatch(r"[UW][A-Z0-9]+", entry) for entry in allowed_users):
+            raise ValueError("Invalid user ID in SLACK_DEBUG_ALLOWED_USERS.")
         if not re.fullmatch(r"[CG][A-Z0-9]+", channel):
             raise ValueError("Invalid SLACK_DEBUG_CHANNEL_ID.")
         if not re.fullmatch(r"[a-z0-9-]+\.slack\.com", host):
@@ -105,8 +113,8 @@ class Config:
             if not value.startswith(prefix):
                 raise ValueError(f"Expected a {prefix} token in the service environment.")
         return cls(
-            root, *repos, home, codex, user, channel, host, *tokens,
-            profile, profile_config, activity_mode,
+            root, *repos, home, codex, token_owner, channel, host, *tokens,
+            profile, profile_config, activity_mode, allowed_users=allowed_users,
         )
 
     def child_environment(self):
@@ -131,15 +139,20 @@ def parse_permalink(text: str, config: Config):
     if not match:
         raise ValueError("use: help debugging on <issue-permalink>")
     url = match.group(1) or match.group(2)
+    channel, ts = slack_message_link(url, config)
+    if channel != config.channel_id:
+        raise ValueError("issue channel is not allowed")
+    return url, ts
+
+
+def slack_message_link(url, config):
     parsed = urlsplit(url)
-    path = re.fullmatch(r"/archives/([CG][A-Z0-9]+)/p(\d{10})(\d{6})/?", parsed.path)
+    path = re.fullmatch(r"/archives/([CGD][A-Z0-9]+)/p(\d{10})(\d{6})/?", parsed.path)
     if (
         parsed.scheme != "https"
         or parsed.netloc != config.workspace_host
         or not path
         or parsed.fragment
     ):
-        raise ValueError("invalid issue permalink for the configured Slack workspace")
-    if path.group(1) != config.channel_id:
-        raise ValueError("issue channel is not allowed")
-    return url, f"{path.group(2)}.{path.group(3)}"
+        raise ValueError("invalid message permalink for the configured Slack workspace")
+    return path.group(1), f"{path.group(2)}.{path.group(3)}"

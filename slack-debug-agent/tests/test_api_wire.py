@@ -59,12 +59,14 @@ class SlackWireTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("finished debugging", posts[-1]["text"])
 
     async def test_api_error_and_http_503_are_reported_without_a_session(self):
-        for suffix, reason in (("000003", "thread_not_found"), ("000004", "service_unavailable")):
+        failures = (("000003", "thread_not_found"), ("000004", "service_unavailable"))
+        for count, (suffix, reason) in enumerate(failures, start=1):
             await self.manager.message(
                 event("help debugging on " + URL.replace("000001", suffix), ts=suffix), suffix
             )
-            await until(lambda: not self.manager.sessions)
-            posts = await self.records()
+            async with asyncio.timeout(2):
+                while len(posts := await self.records()) < count:
+                    await asyncio.sleep(0.01)
             self.assertIn(reason, posts[-1]["text"])
             self.assertNotIn("wire-test", posts[-1]["text"])
         self.assertFalse(FakeCodex.instances)

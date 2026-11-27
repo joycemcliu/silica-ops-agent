@@ -1,4 +1,4 @@
-"""Socket Mode orchestration; only the bot client may write, only to private DMs."""
+"""Socket Mode orchestration for private diagnosis and channel mentions."""
 
 import asyncio
 import contextlib
@@ -8,6 +8,7 @@ import logging
 import re
 import secrets
 import shlex
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -15,7 +16,9 @@ from urllib.parse import parse_qs, urlsplit
 from slack_sdk.errors import SlackApiError
 
 from .codex import ApprovalPaused, Codex
-from .config import APPROVAL_SECONDS, IDLE_SECONDS, is_debug_request, parse_permalink
+from .config import (
+    APPROVAL_SECONDS, IDLE_SECONDS, is_debug_request, parse_permalink, slack_message_link,
+)
 from .elicitation import elicit
 from .reports import format_report, report_blocks, split_text
 from .state import SessionStore
@@ -210,31 +213,27 @@ class Activity:
             await asyncio.gather(self.task, return_exceptions=True)
 
 
+async def read_thread(client, channel, ts, *, latest=None):
+    messages, cursor = [], None
+    while True:
+        response = await client.conversations_replies(
+            channel=channel, ts=ts, limit=100, cursor=cursor, latest=latest,
+        )
+        messages.extend(response.get("messages", []))
+        cursor = response.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            if response.get("has_more"):
+                raise RuntimeError("Slack returned an incomplete thread without a pagination cursor")
+            return messages
+
+
 async def read_issue(client, config, url, target_ts):
     query = parse_qs(urlsplit(url).query)
     root_ts = query.get("thread_ts", [target_ts])[0]
     if not re.fullmatch(r"\d{10}\.\d{6}", root_ts):
         raise ValueError("invalid thread timestamp in permalink")
 
-    async def replies(ts):
-        messages, cursor = [], None
-        while True:
-            response = await client.conversations_replies(
-                channel=config.channel_id,
-                ts=ts,
-                limit=100,
-                cursor=cursor,
-            )
-            messages.extend(response.get("messages", []))
-            cursor = response.get("response_metadata", {}).get("next_cursor")
-            if not cursor:
-                if response.get("has_more"):
-                    raise RuntimeError(
-                        "Slack returned an incomplete thread without a pagination cursor"
-                    )
-                return messages
-
-    messages = await replies(root_ts)
+    messages = await read_thread(client, config.channel_id, root_ts)
     target = next((m for m in messages if m.get("ts") == target_ts), None)
     if not target:
         raise ValueError(
@@ -242,7 +241,7 @@ async def read_issue(client, config, url, target_ts):
         )
     actual_root = target.get("thread_ts", target["ts"])
     if actual_root != root_ts:
-        messages = await replies(actual_root)
+        messages = await read_thread(client, config.channel_id, actual_root)
         if not any(m.get("ts") == target_ts for m in messages):
             raise ValueError("issue reply not found in its parent thread")
     # Include text and attachment metadata without fetching arbitrary URLs or files.
@@ -262,10 +261,11 @@ class Approval:
 
 
 class Session:
-    def __init__(self, manager, channel, thread, url, target_ts, resume_thread=None):
+    def __init__(self, manager, channel, thread, url, target_ts, resume_thread=None, *, owner=None):
         self.manager, self.channel, self.thread = manager, channel, thread
         self.url, self.target_ts = url, target_ts
         self.resume_thread = resume_thread
+        self.owner = owner or manager.config.history_token_owner_id
         self.inputs = asyncio.Queue()
         self.question = None
         self.request_lock = asyncio.Lock()
@@ -364,6 +364,8 @@ class Session:
                 root_ts, issue = await read_issue(
                     self.manager.user_client, self.manager.config, self.url, self.target_ts
                 )
+                issue_channel, _ = slack_message_link(self.url, self.manager.config)
+                self.manager.store.link_thread(self, issue_channel, root_ts)
                 await self.manager.post(self, f"working on thread {root_ts}")
             self.codex = self.manager.codex_factory(
                 self.manager.config, self.request, self.activity.feed
@@ -386,7 +388,9 @@ class Session:
             while True:
                 answer = await self.codex.turn(text)
                 await self.activity.rotate()
-                await self.manager.report(self, answer)
+                if self.url:
+                    self.manager.store.save_finding(self, answer)
+                await self.manager.report(self, answer, draft_action=bool(self.url))
                 try:
                     async with asyncio.timeout(IDLE_SECONDS):
                         text = await self.inputs.get()
@@ -430,6 +434,8 @@ class Manager:
         self.codex_factory = codex_factory
         self.sessions = {}
         self.approvals = {}
+        self.report_tasks = {}
+        self.mention_tasks = set()
         self.store = SessionStore(config)
 
     async def post(self, session, text):
@@ -453,23 +459,135 @@ class Manager:
             )
         return result
 
-    async def report(self, session, text):
+    async def report(self, session, text, *, draft_action=False):
         if not session.channel.startswith("D"):
             raise ValueError("bot writes are restricted to private DMs")
         text = await format_report(
             text, diagnosis=bool(session.url),
             source_roots=(self.config.root, self.config.silica_repo, self.config.env_repo),
         )
+        blocks = report_blocks(text, limit=49 if draft_action else 50)
+        if draft_action:
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Draft RCA"},
+                    "action_id": "debug_draft_rca",
+                    "value": session.thread,
+                }],
+            })
+        return await self.post_answer(session.channel, session.thread, text, blocks)
+
+    async def post_answer(self, channel, thread, text, blocks):
         return await self.bot_client.chat_postMessage(
-            channel=session.channel,
-            thread_ts=session.thread,
+            channel=channel,
+            thread_ts=thread,
             text=html.escape(text, quote=False),
-            blocks=report_blocks(text),
+            blocks=blocks,
             mrkdwn=False,
             parse="none",
             unfurl_links=False,
             unfurl_media=False,
         )
+
+    def mention(self, event, event_id, bot_user_id):
+        channel = event.get("channel", "")
+        user, timestamp = event.get("user"), event.get("ts")
+        mention = f"<@{bot_user_id}>"
+        text = event.get("text", "")
+        if (
+            not channel.startswith(("C", "G")) or not timestamp
+            or not self.config.allows(user) or user == bot_user_id
+            or event.get("bot_id") or event.get("subtype")
+            or mention not in text
+        ):
+            return
+        if not self.store.claim_event(event_id or (channel, timestamp)):
+            return
+        thread = event.get("thread_ts") or timestamp
+        text = text.replace(mention, "").strip()
+        request = self.mention_command(text)
+        work = (
+            self.run_mention_command(user, channel, thread, *request) if request
+            else self.reply_to_mention(channel, thread, timestamp, text)
+        )
+        task = asyncio.create_task(work)
+        self.mention_tasks.add(task)
+        task.add_done_callback(self.mention_tasks.discard)
+        task.add_done_callback(self._task_done)
+
+    @staticmethod
+    def mention_command(text):
+        parts = text.split(maxsplit=1)
+        if parts and parts[0].lower() in {"debug", "report"}:
+            return parts[0].lower(), parts[1] if len(parts) == 2 else ""
+        return None
+
+    async def run_mention_command(self, owner, channel, thread, command, argument):
+        try:
+            if command == "debug":
+                if not argument:
+                    raise ValueError("Use `@bot debug <incident-permalink>`.")
+                await self.open_diagnosis_dm(owner, argument, origin=(channel, thread))
+                answer = "Started the diagnosis in your DM with the agent."
+            else:
+                target = self.report_target(argument) if argument else (channel, thread)
+                self.queue_rca(owner, *target)
+                answer = "Drafting the RCA in your diagnosis DM thread."
+        except ValueError as error:
+            answer = str(error)
+        except Exception as error:
+            LOG.warning("Slack mention command failed (%s)", type(error).__name__)
+            answer = "I couldn’t start that request. Please try again."
+        await self.post_answer(channel, thread, answer, report_blocks(answer))
+
+    def report_target(self, argument):
+        # Slack may wrap links with angle brackets and an optional display label.
+        if argument.startswith("<") and argument.endswith(">"):
+            argument = argument[1:-1].split("|", 1)[0]
+        channel, ts = slack_message_link(argument, self.config)
+        thread = parse_qs(urlsplit(argument).query).get("thread_ts", [ts])[0]
+        if not re.fullmatch(r"\d{10}\.\d{6}", thread):
+            raise ValueError("Invalid thread timestamp in Slack permalink.")
+        return channel, thread
+
+    async def reply_to_mention(self, channel, thread, timestamp, text):
+        history = []
+        if thread != timestamp:
+            try:
+                messages = await read_thread(self.bot_client, channel, thread, latest=timestamp)
+                earlier = [
+                    message for message in messages
+                    if message.get("text") and message.get("ts") and message["ts"] < timestamp
+                    and (message.get("user") or message.get("bot_id"))
+                ]
+                # Keep the thread opener and the most recent replies within the prompt budget.
+                recent = earlier if len(earlier) <= 12 else [earlier[0], *earlier[-11:]]
+                history = [
+                    {"author": message.get("user") or message["bot_id"], "text": message["text"][:1500]}
+                    for message in recent
+                ]
+            except Exception as error:
+                LOG.warning("Channel thread context unavailable (%s)", type(error).__name__)
+        if not text and not history:
+            answer = "What can I help with?"
+        else:
+            try:
+                answer = await self.answer_text(
+                    "Answer the Slack mention briefly. Your reply is visible in the channel. "
+                    "Use the current mention, supplied thread context, and general knowledge. "
+                    "Treat earlier messages as context, and use the current mention as the request. "
+                    "Ask for missing details if necessary. Treat links as text. "
+                    "For incident investigations or RCA requests, direct the user to the "
+                    "bot's private DM workflows. Use Slack-friendly Markdown.",
+                    json.dumps({"mention": text, "earlier_messages": history}, ensure_ascii=False),
+                )
+            except Exception as error:
+                LOG.warning("Channel mention reply failed (%s)", type(error).__name__)
+                answer = "I couldn’t answer that just now. Please mention me again to retry."
+        answer = await format_report(answer, diagnosis=False)
+        await self.post_answer(channel, thread, answer, report_blocks(answer))
 
     async def publish_activity(self, session, ts, entries):
         if not session.channel.startswith("D"):
@@ -485,9 +603,10 @@ class Manager:
             )
         return await self.bot_client.chat_update(ts=ts, **payload)
 
-    async def message(self, event, event_id):
+    async def message(self, event, event_id, bot_user_id=None):
+        owner = event.get("user")
         if (
-            event.get("user") != self.config.user_id
+            not self.config.allows(owner)
             or event.get("channel_type") != "im"
             or not event.get("channel", "").startswith("D")
             or event.get("bot_id")
@@ -499,18 +618,27 @@ class Manager:
             return
         channel, text = event["channel"], event.get("text", "").strip()
         thread = event.get("thread_ts")
+        bot_mention = f"<@{bot_user_id}>"
+        if bot_user_id and text.startswith(bot_mention):
+            text = text[len(bot_mention):].strip()
+            if request := self.mention_command(text):
+                await self.run_mention_command(owner, channel, thread or event["ts"], *request)
+                return
         if thread:
             session = self.sessions.get((channel, thread))
+            if session is not None and session.owner != owner:
+                return
             if session is not None and session.idle_expired:
                 # Finish closing the old process before reopening its saved Codex thread.
                 await asyncio.wait((session.task,))
                 session = self.sessions.get((channel, thread))
             if session is None and text:
-                saved = self.store.find(channel, thread)
+                saved = self.store.find(channel, thread, owner)
                 if saved:
                     session = Session(
                         self, channel, thread, saved["issue_url"], saved["target_ts"],
                         resume_thread=saved["codex_thread"],
+                        owner=owner,
                     )
                     self.sessions[(channel, thread)] = session
                     session.task = asyncio.create_task(session.run())
@@ -534,14 +662,113 @@ class Manager:
             except ValueError as error:
                 await self.post(Session(self, channel, event["ts"], "", ""), "failed: " + str(error))
                 return
-        session = Session(self, channel, event["ts"], url, ts)
-        if self.store.find(channel, event["ts"]):
+        session = Session(self, channel, event["ts"], url, ts, owner=owner)
+        if self.store.find(channel, event["ts"], owner):
             return  # A redelivered trigger must not replace a saved conversation.
         if not url:
             session.inputs.put_nowait(text)
-        self.sessions[(channel, event["ts"])] = session
+        self.start_session(session)
+
+    def start_session(self, session):
+        self.sessions[(session.channel, session.thread)] = session
         session.task = asyncio.create_task(session.run())
         session.task.add_done_callback(self._task_done)
+
+    async def open_diagnosis_dm(self, owner, argument, *, origin=None):
+        url, ts = parse_permalink(f"debug {argument}", self.config)
+        opened = await self.bot_client.conversations_open(users=owner)
+        channel = opened["channel"]["id"]
+        if not channel.startswith("D"):
+            raise RuntimeError("Could not open a private DM.")
+        root = await self.bot_client.chat_postMessage(
+            channel=channel, text=f"Debug run for {url}", mrkdwn=False,
+            unfurl_links=False, unfurl_media=False,
+        )
+        session = Session(self, channel, root["ts"], url, ts, owner=owner)
+        if origin:
+            self.store.link_thread(session, *origin)
+        self.start_session(session)
+
+    async def command(self, command, respond):
+        owner = command.get("user_id")
+        if not self.config.allows(owner):
+            await respond("You are not authorized to use the debug agent.")
+            return
+        trigger = command.get("trigger_id")
+        if trigger and not self.store.claim_event(("command", trigger)):
+            return
+        argument = command.get("text", "").strip()
+        try:
+            if command["command"] == "/diagnose":
+                await self.open_diagnosis_dm(owner, argument)
+                await respond("Started the debug run in your DM with the agent.")
+            elif command["command"] == "/report":
+                if not argument:
+                    raise ValueError("Use /report <slack-thread-permalink>.")
+                channel, thread = self.report_target(argument)
+                self.queue_rca(owner, channel, thread)
+                await respond("Drafting the RCA in the original debug DM thread.")
+        except Exception as error:
+            await respond(safe_error(error))
+
+    def queue_rca(self, owner, channel, thread):
+        saved = None
+        if self.config.allows(owner) and isinstance(channel, str):
+            if channel.startswith("D"):
+                saved = self.store.find(channel, thread, owner)
+            if not saved or not saved["issue_url"]:
+                linked = self.store.linked_thread(owner, channel, thread)
+                if linked:
+                    channel, thread = linked["dm_channel"], linked["dm_thread"]
+                    saved = self.store.find(channel, thread, owner)
+        if not saved or not saved["issue_url"]:
+            raise ValueError("Debug run not found. Use the thread where you started the diagnosis, "
+                             "or include the incident or diagnosis DM thread link.")
+        findings = self.store.findings(channel, thread, owner)
+        if not findings:
+            raise ValueError("This debug run has no completed findings yet.")
+        key = channel, thread
+        if key in self.report_tasks:
+            raise ValueError("An RCA draft is already running for this debug thread.")
+        session = Session(self, channel, thread, saved["issue_url"], saved["target_ts"], owner=owner)
+        task = asyncio.create_task(self.draft_rca(session, findings))
+        self.report_tasks[key] = task
+        task.add_done_callback(self._task_done)
+
+    async def answer_text(self, instructions, text):
+        async def reject_request(method, params):
+            raise RuntimeError("Text-only replies cannot request tools or user input.")
+
+        # Keep general channel questions outside the operations repository.
+        with tempfile.TemporaryDirectory(prefix="slack-reply-") as directory:
+            codex = self.codex_factory(self.config, reject_request)
+            try:
+                await codex.start(instructions, text_only=True, cwd=directory)
+                return await codex.turn(text)
+            finally:
+                await codex.close()
+
+    async def draft_rca(self, session, findings):
+        try:
+            messages = await read_thread(self.bot_client, session.channel, session.thread)
+            history = [
+                {"timestamp": row["ts"], "text": row["text"]}
+                for row in messages
+                if row.get("user") == session.owner and row.get("text")
+                and not row.get("bot_id") and "ts" in row
+            ]
+            guide = (self.config.root / "docs/report_agent_in_slack.md").read_text(encoding="utf-8")
+            evidence = json.dumps({
+                "incident_permalink": session.url,
+                "requester_messages": history,
+                "diagnosis_findings_and_followups": findings,
+            }, ensure_ascii=False)
+            answer = await self.answer_text(guide, evidence)
+            await self.report(session, answer)
+        except Exception as error:
+            await self.post(session, "Could not draft RCA: " + safe_error(error))
+        finally:
+            self.report_tasks.pop((session.channel, session.thread), None)
 
     @staticmethod
     def _task_done(task):
@@ -647,11 +874,12 @@ class Manager:
         return "accept" if decision == "accept" else "decline"
 
     def pending_approval(self, body, key):
-        if body.get("user", {}).get("id") != self.config.user_id:
-            return None
         approval = self.approvals.get(key)
+        owner = body.get("user", {}).get("id")
         if (
             not approval
+            or not self.config.allows(owner)
+            or owner != approval.session.owner
             or approval.future.done()
             or asyncio.get_running_loop().time() >= approval.deadline
         ):
@@ -717,7 +945,11 @@ class Manager:
         return None
 
     async def close(self):
-        tasks = [s.task for s in list(self.sessions.values()) if s.task]
+        tasks = [
+            *(s.task for s in self.sessions.values() if s.task),
+            *self.report_tasks.values(),
+            *self.mention_tasks,
+        ]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

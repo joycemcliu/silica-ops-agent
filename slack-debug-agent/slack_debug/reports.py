@@ -170,7 +170,7 @@ def table_block(text, remaining):
     }, size
 
 
-def report_blocks(text):
+def report_blocks(text, *, limit=50):
     blocks = []
     elements = []
     position = 0
@@ -179,7 +179,7 @@ def report_blocks(text):
         table = None
         if match["table"]:
             # Leave room for prose before and after this table in Slack's 50-block payload.
-            if len(blocks) >= 48 or (table := table_block(match["table"], remaining)) is None:
+            if len(blocks) >= limit - 2 or (table := table_block(match["table"], remaining)) is None:
                 continue
         elements.extend(prose_elements(text[position:match.start()]))
         if table:

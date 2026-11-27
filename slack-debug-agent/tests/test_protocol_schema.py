@@ -16,6 +16,46 @@ from slack_debug.codex import Codex
 
 class InstalledProtocolTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("codex"), "Codex CLI not installed")
+    def test_text_only_thread_disables_configured_tools_without_a_model_turn(self):
+        async def probe():
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                home = root / "codex-home"
+                home.mkdir()
+                (home / "config.toml").write_text(
+                    '[mcp_servers.probe]\nurl="http://127.0.0.1:9/mcp"\n'
+                )
+
+                async def reject(method, params):
+                    raise RuntimeError("Unexpected tool request")
+
+                class Probe(Codex):
+                    async def call(self, method, params):
+                        result = await super().call(method, params)
+                        if method == "thread/start":
+                            self.start_params = params
+                            self.started = result
+                        return result
+
+                client = Probe(dataclasses.replace(config(root), codex_home=home), reject)
+                try:
+                    await client.start("Draft an RCA from supplied evidence.", text_only=True)
+                    self.assertEqual(client.started["approvalPolicy"], "never")
+                    self.assertEqual(client.started["sandbox"]["type"], "readOnly")
+                    self.assertFalse(client.started["sandbox"]["networkAccess"])
+                    self.assertTrue(client.start_params["ephemeral"])
+                    self.assertFalse(client.start_params["config"]["features"]["shell_tool"])
+                    status = await client.call("mcpServerStatus/list", {"threadId": client.thread_id})
+                    self.assertEqual(
+                        [(entry["name"], entry["runtimeStatus"]) for entry in status["data"]],
+                        [("probe", "disabled")],
+                    )
+                finally:
+                    await client.close()
+
+        asyncio.run(asyncio.wait_for(probe(), 20))
+
+    @unittest.skipUnless(shutil.which("codex"), "Codex CLI not installed")
     def test_native_thread_survives_process_restart_without_model_execution(self):
         async def probe():
             with tempfile.TemporaryDirectory() as directory:
