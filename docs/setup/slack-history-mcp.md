@@ -42,18 +42,17 @@ args = ["/ABS/PATH/silica-ops-agent/mcp-servers/slack-history-mcp/slack-history-
 env = { SLACK_HISTORY_TOKEN_FILE = "/ABS/PATH/.local/secrets/slack-history-token", SLACK_HISTORY_CHANNELS = "C0123456789" }
 ```
 
-Store the token alone in a file outside the repository, for example `install -m 600 /dev/null ~/.local/secrets/slack-history-token`, then paste it in. Keep the token out of MCP configs. `SLACK_HISTORY_TOKEN` also works but puts the secret in config. Set `SLACK_HISTORY_CHANNELS` to limit readable channels (the escalation channel at minimum).
+Store the token alone in a file outside the repository, for example `install -m 600 /dev/null ~/.local/secrets/slack-history-token`, then paste it in. Keep the token out of MCP configs.
 
 ## Run once on a long-running host (optional)
 
 Instead of a stdio server per machine, run it as streamable HTTP on the WSL host and point other machines at it. The Slack token then lives only on that host.
 
-Run `scripts/bootstrap-wsl-host.sh` to install or refresh the service. It needs `uv`, systemd, and `~/.local/secrets/slack-history-token`. Add `--harness` to also run `harness global` and `harness use`. For a manual install in `~/silica-ops-agent`, run the following commands.
+Run `scripts/bootstrap-wsl-host.sh` to install or refresh Slack History. It needs `uv`, systemd, and `~/.local/secrets/slack-history-token`. Add `--harness` to also run `harness global` and `harness use`. For a manual Slack History install in `~/silica-ops-agent`, run the following commands.
 
 ```bash
 install -m 600 /dev/null ~/.local/secrets/slack-history-mcp-http-token   # paste a long random string
 mkdir -p ~/.config/systemd/user && cp mcp-servers/slack-history-mcp/slack-history-mcp.service ~/.config/systemd/user/
-# Optional for new installs: copy mcp-servers/slack-history-mcp/.env.example to .env in the same directory and set SLACK_HISTORY_CHANNELS.
 systemctl --user daemon-reload && systemctl --user enable --now slack-history-mcp
 loginctl enable-linger "$USER"
 ```

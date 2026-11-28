@@ -1,0 +1,15 @@
+[Unit]
+Description=Google Drive RCA MCP server (streamable HTTP)
+
+[Service]
+Type=simple
+WorkingDirectory=%h/silica-ops-agent
+Environment=RCA_MCP_HTTP_TOKEN_FILE=%h/.local/secrets/google-drive-rca-mcp-http-token
+EnvironmentFile=-%h/silica-ops-agent/mcp-servers/env/.env.gdrive
+ExecStart="%h/silica-ops-agent/.venv/bin/python" "%h/silica-ops-agent/mcp-servers/google-drive-mcp/google-drive-mcp.py" --http
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

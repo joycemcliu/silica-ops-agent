@@ -5,7 +5,6 @@ Optional SLACK_HISTORY_CHANNELS (comma-separated IDs) restricts readable channel
 """
 
 import argparse
-import hmac
 import os
 import re
 import sys
@@ -120,37 +119,15 @@ async def search_messages(query: str, count: int = 20) -> dict:
     return {"matches": matches}
 
 
-class BearerAuth:
-    """ASGI middleware rejecting HTTP requests without the shared bearer token."""
-
-    def __init__(self, app, token):
-        self.app = app
-        self.expected = f"Bearer {token}".encode()
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http":
-            given = dict(scope["headers"]).get(b"authorization", b"")
-            if not hmac.compare_digest(given, self.expected):
-                await send({"type": "http.response.start", "status": 401, "headers": [(b"content-type", b"text/plain")]})
-                await send({"type": "http.response.body", "body": b"unauthorized"})
-                return
-        await self.app(scope, receive, send)
-
-
-def serve_http(host, port):
+def run_http(host, port):
     path = os.environ.get("SLACK_HISTORY_HTTP_TOKEN_FILE")
     token = os.environ.get("SLACK_HISTORY_HTTP_TOKEN") or (Path(path).expanduser().read_text().strip() if path else "")
     if not token:
         sys.exit("HTTP mode needs SLACK_HISTORY_HTTP_TOKEN_FILE (or SLACK_HISTORY_HTTP_TOKEN)")
-    import uvicorn
-    from mcp.server.transport_security import TransportSecuritySettings
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from mcp_http import serve_http
 
-    if host not in ("127.0.0.1", "localhost", "::1"):
-        # Host-header allowlisting only suits loopback; the bearer token guards remote access.
-        mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-
-    app = BearerAuth(mcp.streamable_http_app(), token)
-    uvicorn.run(app, host=host, port=port)
+    serve_http(mcp, host, port, token)
 
 
 if __name__ == "__main__":
@@ -163,6 +140,6 @@ if __name__ == "__main__":
     if args.check:
         print("ok")
     elif args.http:
-        serve_http(args.host, args.port)
+        run_http(args.host, args.port)
     else:
         mcp.run()

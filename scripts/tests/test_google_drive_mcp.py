@@ -104,7 +104,7 @@ class ReportTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             with patch.object(server, "ROOT", root), patch.dict(os.environ, {"RCA_GOOGLE_CREDENTIALS_FILE": "missing.json"}):
-                with self.assertRaisesRegex(RuntimeError, "Correct RCA_GOOGLE_CREDENTIALS_FILE in config.env"):
+                with self.assertRaisesRegex(RuntimeError, "Correct RCA_GOOGLE_CREDENTIALS_FILE in mcp-servers/env/"):
                     server.create_rca_doc(report)
             self.assertEqual(list(root.iterdir()), [])
 

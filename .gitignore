@@ -5,6 +5,7 @@ coverage.out
 .env.*
 *.env
 !.env.example
+!/mcp-servers/env/.env.*.example
 *.pem
 *.key
 .aws/

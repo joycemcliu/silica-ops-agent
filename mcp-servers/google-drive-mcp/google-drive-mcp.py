@@ -1,11 +1,13 @@
 """Google Drive MCP server for publishing Phase C RCA reports."""
 
+import argparse
 from datetime import date as Date, timezone
 import fcntl
 from html import escape
 import json
 import os
 from pathlib import Path
+import sys
 from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal
 from uuid import uuid4
@@ -259,14 +261,14 @@ def create_rca_doc(report: RCAReport, replace_existing: bool = False) -> dict[st
         return save_local_report(report, replace_existing)
     path = ROOT / Path(configured_path).expanduser()
     if not path.is_file():
-        raise RuntimeError("Correct RCA_GOOGLE_CREDENTIALS_FILE in config.env and start a new session.")
+        raise RuntimeError("Correct RCA_GOOGLE_CREDENTIALS_FILE in mcp-servers/env/.env.gdrive and start a new session.")
 
     # Stdio servers on the same host share this lock when they use the same credential file.
     with path.open() as credential_file:
         try:
             credentials = Credentials.from_service_account_info(json.load(credential_file), scopes=[DRIVE_SCOPE])
         except (DefaultCredentialsError, ValueError) as error:
-            raise RuntimeError("Correct RCA_GOOGLE_CREDENTIALS_FILE in config.env and start a new session.") from error
+            raise RuntimeError("Correct RCA_GOOGLE_CREDENTIALS_FILE in mcp-servers/env/.env.gdrive and start a new session.") from error
         with AuthorizedSession(credentials, refresh_timeout=20) as client:
             fcntl.flock(credential_file, fcntl.LOCK_EX)
             existing = existing_report(client, report.slack_thread_id)
@@ -286,5 +288,31 @@ def create_rca_doc(report: RCAReport, replace_existing: bool = False) -> dict[st
     }
 
 
+def run_http(host, port):
+    configured_path = os.environ.get("RCA_MCP_HTTP_TOKEN_FILE")
+    if not configured_path:
+        sys.exit("HTTP mode requires RCA_MCP_HTTP_TOKEN_FILE.")
+    path = ROOT / Path(configured_path).expanduser()
+    try:
+        token = path.read_text().strip()
+    except OSError:
+        sys.exit("Unable to read RCA_MCP_HTTP_TOKEN_FILE.")
+    if not token:
+        sys.exit("RCA_MCP_HTTP_TOKEN_FILE must contain a bearer token.")
+
+    sys.path.insert(0, str(ROOT / "mcp-servers"))
+    from mcp_http import serve_http
+
+    serve_http(mcp, host, port, token)
+
+
 if __name__ == "__main__":
-    mcp.run()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--http", action="store_true", help="serve streamable HTTP at /mcp instead of stdio")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=60011)
+    args = parser.parse_args()
+    if args.http:
+        run_http(args.host, args.port)
+    else:
+        mcp.run()

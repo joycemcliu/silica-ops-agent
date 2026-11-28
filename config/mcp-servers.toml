@@ -3,7 +3,7 @@
 # Render runtime config with scripts/render-mcp-config.py; do not hand-edit copies.
 #
 # Placeholders: {repo} = this repository's root, {home} = $HOME,
-# {env:NAME} = value of environment variable NAME at render time (omitted if unset).
+# {env:NAME} = value from mcp-servers/env/.env.* or the renderer's environment.
 # Use read-only servers for investigation. Phase C Drive writes require approval.
 
 [servers.grafana_mcp_ops_dev]
@@ -20,7 +20,7 @@ host_header = "localhost:60008"
 type = "stdio"
 command = "{repo}/.venv/bin/python"
 args = ["{repo}/mcp-servers/slack-history-mcp/slack-history-mcp.py"]
-codex_approve_tools = ["get_thread", "get_channel_history", "search_messages"]
+codex_default_tools_approval_mode = "auto"
 
 [servers.slack_history.env]
 SLACK_HISTORY_TOKEN_FILE = "{home}/.local/secrets/slack-history-token"

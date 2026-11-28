@@ -13,15 +13,23 @@ The repository-hosted servers and their dependencies live under `mcp-servers/`.
 ## Prerequisites
 
 - Complete [Repo-local Python environment](setup-python-venv.md) (Python 3.11+ for `tomllib`).
+- Install `python-dotenv` in the repo venv if the MCP server dependencies are absent.
+
+  ```bash
+  uv pip install --python .venv/bin/python python-dotenv==1.2.4
+  ```
+
 - Complete the setup of each server you enable, such as [Grafana MCP forwarding](grafana-mcp-forward.md), [Slack history MCP server](slack-history-mcp.md), and [Google Drive RCA MCP server](google-drive-mcp.md).
 
 ## Setup
 
-From the repository root, render the section for the target runtime. `SLACK_HISTORY_CHANNELS` is optional; unset variables are omitted.
+Copy the templates you need from `mcp-servers/env/` to `.env.slack` or `.env.gdrive` in the same directory. Keep token values in their own secret files.
+
+From the repository root, render the section for the target runtime. The renderer reads `.env.*` files in `mcp-servers/env/` and skips examples. If a key is repeated, the later file in lexical order wins. Exported shell variables take precedence over file values. Only variables referenced by the registry are rendered.
 
 ```bash
-SLACK_HISTORY_CHANNELS=C0123456789 .venv/bin/python scripts/render-mcp-config.py codex
-SLACK_HISTORY_CHANNELS=C0123456789 .venv/bin/python scripts/render-mcp-config.py hermes
+.venv/bin/python scripts/render-mcp-config.py codex
+.venv/bin/python scripts/render-mcp-config.py hermes
 ```
 
 Merge the output into the runtime's config, preserving unrelated settings, and remove obsolete `sandbox_dev_grafana` and `sandbox_prod_grafana` entries:
@@ -46,5 +54,5 @@ Edit `config/mcp-servers.toml` to add a server (`type = "http"` or `"stdio"`), r
 
 ## Troubleshooting
 
-- **A variable is missing from `env`:** its `{env:NAME}` placeholder was unset at render time; export it and rerender.
+- **A variable is missing from `env`:** set it in the matching `mcp-servers/env/.env.*` file and rerender.
 - **Config differs between runtimes:** rerender from the registry and merge again.

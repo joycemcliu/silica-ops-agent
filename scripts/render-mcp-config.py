@@ -12,12 +12,22 @@ import re
 import sys
 import tomllib
 
+from dotenv import dotenv_values
+
 
 REPO = Path(__file__).resolve().parents[1]
 PLACEHOLDER = re.compile(r"\{(repo|home|env:[A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-def expand(value):
+def mcp_environment(directory):
+    values = {}
+    for path in sorted(directory.glob(".env.*")):
+        if path.is_file() and not path.name.endswith(".example"):
+            values.update({key: value for key, value in dotenv_values(path, interpolate=False).items() if value is not None})
+    return {**values, **os.environ}
+
+
+def expand(value, values):
     """Return the expanded string, or None when an {env:NAME} variable is unset."""
     missing = False
 
@@ -28,7 +38,7 @@ def expand(value):
             return str(REPO)
         if key == "home":
             return str(Path.home())
-        found = os.environ.get(key[4:])
+        found = values.get(key[4:])
         missing = missing or found is None
         return found or ""
 
@@ -36,16 +46,16 @@ def expand(value):
     return None if missing else result
 
 
-def resolve(server):
-    env = {k: v for k, v in ((k, expand(v)) for k, v in server.get("env", {}).items()) if v is not None}
+def resolve(server, values):
+    env = {k: v for k, v in ((k, expand(v, values)) for k, v in server.get("env", {}).items()) if v is not None}
     return {
         "type": server["type"],
         "url": server.get("url"),
         "host_header": server.get("host_header"),
         "bearer_env": server.get("bearer_token_env"),
-        "bearer_file": expand(server["bearer_token_file"]) if "bearer_token_file" in server else None,
-        "command": expand(server["command"]) if "command" in server else None,
-        "args": [expand(a) for a in server.get("args", [])],
+        "bearer_file": expand(server["bearer_token_file"], values) if "bearer_token_file" in server else None,
+        "command": expand(server["command"], values) if "command" in server else None,
+        "args": [expand(a, values) for a in server.get("args", [])],
         "env": env,
         "approve": server.get("codex_approve_tools", []),
         "approval_mode": server.get("codex_default_tools_approval_mode"),
@@ -113,7 +123,8 @@ def main(argv=None):
     parser.add_argument("--registry", type=Path, default=REPO / "config" / "mcp-servers.toml")
     args = parser.parse_args(argv)
     registry = tomllib.loads(args.registry.read_text())
-    servers = {name: resolve(s) for name, s in registry["servers"].items()}
+    values = mcp_environment(REPO / "mcp-servers" / "env")
+    servers = {name: resolve(s, values) for name, s in registry["servers"].items()}
     print((render_codex if args.target == "codex" else render_hermes)(servers))
 
 
