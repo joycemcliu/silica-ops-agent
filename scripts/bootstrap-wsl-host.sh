@@ -10,6 +10,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SECRETS="$HOME/.local/secrets"
 UNIT_DIR="$HOME/.config/systemd/user"
 SERVICE=slack-history-mcp
+SERVICE_DIR="$REPO/mcp-servers/$SERVICE"
 PORT=60010
 
 log() { echo "bootstrap: $*"; }
@@ -20,7 +21,7 @@ command -v systemctl >/dev/null || die "systemd is required; enable it in /etc/w
 
 PY="$REPO/.venv/bin/python"
 [ -x "$PY" ] || uv venv "$REPO/.venv"
-uv pip install --python "$PY" -r "$REPO/scripts/requirements-slack-history-mcp.txt"
+uv pip install --python "$PY" -r "$SERVICE_DIR/requirements.txt"
 
 mkdir -p "$SECRETS"
 chmod 700 "$SECRETS"
@@ -33,8 +34,10 @@ fi
 
 # The unit assumes ~/silica-ops-agent; rewrite it for wherever this repo actually lives.
 mkdir -p "$UNIT_DIR"
-sed "s|%h/silica-ops-agent|$REPO|g" "$REPO/scripts/$SERVICE.service" > "$UNIT_DIR/$SERVICE.service"
-[ -f "$REPO/scripts/$SERVICE.env" ] || log "optional: set SLACK_HISTORY_CHANNELS=... in scripts/$SERVICE.env, then restart the service"
+sed "s|%h/silica-ops-agent|$REPO|g" "$SERVICE_DIR/$SERVICE.service" > "$UNIT_DIR/$SERVICE.service"
+if [[ ! -f "$SERVICE_DIR/.env" && ! -f "$REPO/scripts/$SERVICE.env" ]]; then
+  log "optional: copy mcp-servers/$SERVICE/.env.example to .env in the same directory and set SLACK_HISTORY_CHANNELS, then restart the service"
+fi
 
 systemctl --user daemon-reload
 systemctl --user enable "$SERVICE"

@@ -7,7 +7,7 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-SCRIPT = Path(__file__).resolve().parents[1] / "slack-history-mcp.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "mcp-servers/slack-history-mcp/slack-history-mcp.py"
 spec = importlib.util.spec_from_file_location("slack_history_mcp", SCRIPT)
 server = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server)

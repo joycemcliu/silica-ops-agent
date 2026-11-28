@@ -31,6 +31,10 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(parsed["slack_history"]["tools"]["get_thread"]["approval_mode"], "approve")
         self.assertEqual(parsed["google_drive_rca"]["default_tools_approval_mode"], "prompt")
         self.assertEqual(parsed["google_drive_rca"]["env"]["RCA_GOOGLE_CREDENTIALS_FILE"], "credentials/rca.json")
+        for name, folder in (("slack_history", "slack-history-mcp"), ("google_drive_rca", "google-drive-mcp")):
+            script = SCRIPTS.parent / "mcp-servers" / folder / f"{folder}.py"
+            self.assertEqual(parsed[name]["args"], [str(script)])
+            self.assertTrue(script.is_file())
 
     def test_unset_env_placeholder_is_omitted(self):
         env = dict(os.environ)

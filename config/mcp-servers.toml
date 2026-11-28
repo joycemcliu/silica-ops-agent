@@ -19,7 +19,7 @@ host_header = "localhost:60008"
 [servers.slack_history]
 type = "stdio"
 command = "{repo}/.venv/bin/python"
-args = ["{repo}/scripts/slack-history-mcp.py"]
+args = ["{repo}/mcp-servers/slack-history-mcp/slack-history-mcp.py"]
 codex_approve_tools = ["get_thread", "get_channel_history", "search_messages"]
 
 [servers.slack_history.env]
