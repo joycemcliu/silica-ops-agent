@@ -8,7 +8,7 @@ tags: [mcp, codex, hermes, slack, grafana, setup]
 
 `config/mcp-servers.toml` is the single list of MCP servers every diagnose agent uses: local Codex or Hermes sessions and the Slack listener's dedicated Codex home. `scripts/render-mcp-config.py` renders it for each runtime, so server names and settings stay identical. Add or change a server in the registry, never in a runtime config copy.
 
-The repository-hosted servers and their dependencies live under `mcp-servers/`. After updating from the previous layout, rerender the registry and replace the existing server entries in each runtime config.
+The repository-hosted servers and their dependencies live under `mcp-servers/`.
 
 ## Prerequisites
 

@@ -58,8 +58,6 @@ systemctl --user daemon-reload && systemctl --user enable --now slack-history-mc
 loginctl enable-linger "$USER"
 ```
 
-On an existing WSL host, rerun the bootstrap script to install the new unit and restart the service. The unit still reads `scripts/slack-history-mcp.env`, so existing allowlists carry over. Values in `mcp-servers/slack-history-mcp/.env` take precedence when both files are present.
-
 The unit listens on `0.0.0.0:60010/mcp` and rejects requests without `Authorization: Bearer <http token>`; the bearer token is the only application-level protection, so keep it secret. Reach the host over [Tailscale](https://tailscale.com) installed inside WSL (`curl -fsSL https://tailscale.com/install.sh | sh`, then `sudo tailscale up`), and install it on the laptop too. Traffic is then encrypted and needs no Windows port proxy or firewall rule, which WSL2's NAT mode would otherwise require. Use `http://<wsl-tailnet-name>:60010/mcp` as the URL, and restrict port 60010 to your laptop with a Tailscale ACL if wanted. For loopback only, change the unit to `--host 127.0.0.1` and use an SSH tunnel instead. On the laptop, save the token to `~/.local/secrets/slack-history-mcp-http-token` (`chmod 600`) and render `config/mcp-servers.remote.toml` with `scripts/render-mcp-config.py {codex,hermes} --registry config/mcp-servers.remote.toml`. Codex reads the file through `scripts/mcp-bearer-header.sh` (`http_headers_helper`), so no environment variable is needed; Hermes still needs `SLACK_HISTORY_MCP_TOKEN` exported.
 
 ## Verification
