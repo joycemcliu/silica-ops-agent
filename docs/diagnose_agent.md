@@ -36,3 +36,11 @@ These rules apply to every agent throughout the diagnosis session, including whe
 12. Deliver the final report (includes the PR link, if any).
 
 A diagnosis is complete only after Phase B. Do not skip steps 6-8 unless the user says so.
+
+### Phase C: RCA report (optional, only when the user requests it)
+
+10. Read [RCA guideline](../knowledge/rca/AGENTS.md) and produce the RCA deliverables it defines:
+    a. Root cause findings in a Google Doc.
+    b. A follow-up ticket for the long-term fix on the Notion page.
+    c. The Slack reply using the required wording.
+    Do not start Phase C unless the user asked for an RCA. If Phase B is not finished, finish it first.
