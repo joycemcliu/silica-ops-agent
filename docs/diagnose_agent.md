@@ -28,19 +28,15 @@ These rules apply to every agent throughout the diagnosis session, including whe
 4. Use the [diagnosis toolkit](diagnose_toolkit.md) to gather evidence from source code, deployment configuration, service health, logs, metrics, and traces. Read the relevant section before using a tool. Skills in [`docs/skills/`](skills/) are optional toolkit extensions; load only a relevant skill when helpful. Follow the permissions above, including when using a skill.
 5. Summarize findings: symptom, evidence, likely cause, uncertainty, next steps. This is an interim summary, not the end of the diagnosis.
 
-### Phase B: Finalize (starts when the user says finish/wrap up/done, or when the cause is confirmed)
+### Phase B: Finalize (starts when the user says finish/wrap up/done, or answers yes to the finish question)
 
-9. Clean up session tunnels. Leave shared Grafana forwarding running.
-10. Read [runbook guideline](../knowledge/runbooks/AGENTS.md); prepare the incident summary and runbook updates. Save them when authorized.
-11. Follow [debrief instructions](../knowledge/debrief/AGENTS.md); capture reusable knowledge.
-12. Deliver the final report (includes the PR link, if any).
+6. Clean up session tunnels. Leave shared Grafana forwarding running.
+7. Read [runbook guideline](../knowledge/runbooks/AGENTS.md); prepare the incident summary and runbook updates. Save them when authorized.
+8. Follow [debrief instructions](../knowledge/debrief/AGENTS.md); capture reusable knowledge.
+9. Deliver the final report (includes the PR link, if any).
 
-A diagnosis is complete only after Phase B. Do not skip steps 6-8 unless the user says so.
+A diagnosis is complete only after Phase B. Do not skip steps 6-9 unless the user says so.
 
 ### Phase C: RCA report (optional, only when the user requests it)
 
-10. Read [RCA guideline](../knowledge/rca/AGENTS.md) and produce the RCA deliverables it defines:
-    a. Root cause findings in a Google Doc.
-    b. A follow-up ticket for the long-term fix on the Notion page.
-    c. The Slack reply using the required wording.
-    Do not start Phase C unless the user asked for an RCA. If Phase B is not finished, finish it first.
+10. Phase B must be complete. Read [RCA guideline](../knowledge/rca/AGENTS.md) and follow it from start to finish.

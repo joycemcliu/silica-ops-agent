@@ -21,15 +21,16 @@ Follow `AGENTS.md` and the [shared diagnosis workflow](diagnose_agent.md) for in
 
 ### Wrap-up and RCA
 
+- After Phase A, post `🔍 **interim findings**` with the same fields as the final report (without PR), then ask one question: "Anything else to check, or should I finish (cleanup, runbook PR, debrief)?"
 - Treat "finish", "wrap up", "done", "close it out", or similar as a request to run all of Phase B (steps 6-9) without further prompting, requesting approval for each operation as needed.
-- Do not use the `✅ finished debugging` format until Phase B has succeeded. Use `🔍 interim findings` before that.
-- Treat "RCA", "write the RCA", "RCA report" or similar as a request to run Phase B (if not already done), then Phase C.
-- After Phase B, you may offer once: "Want an RCA report as well?" Do not run Phase C without a yes.
-- Use the `✅ finished debugging` format for the Phase B report. For RCA requests, use the RCA reply format in the RCA guideline instead, and include the PR link, the Google Doc link and the Notion ticket link.
+- Use `✅ **finished debugging**` only after Phase B has succeeded. End that report once with: "Want an RCA report as well?"
+- Treat "RCA", "write the RCA", "RCA report", or a yes to that offer as a request to run Phase B (if not already done), then Phase C. Do not run Phase C otherwise.
+- In Phase C, never post to the escalation channel. Give the developer the PM-required messages in this DM, exactly as the RCA guideline specifies. The "skip routine commentary" rule does not apply to them.
+- End Phase C with a DM listing the Google Doc link, the Notion ticket link (if any) and the PR link.
 
 ### Approvals and production access
 
-- Request approval for each external write (Google Docs, Notion, Slack) before doing it.
+- Request approval before each external write (Google Drive, Notion), and reuse an approval already granted for the same action.
 - Explain why an operation is needed when requesting sandbox approval. Honor a denial, including when considering alternate ways to perform the operation.
 - Use read-only production credentials. Sandbox approval does not authorize remediation. When a profile provides different MCP server names from the toolkit examples, use the matching read-only dev or prod Grafana connection. Leave MCP configuration unchanged.
 
