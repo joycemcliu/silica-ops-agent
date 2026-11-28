@@ -11,6 +11,7 @@ Run setup commands from the repository root unless a guide states otherwise.
 | [Windows access through WinRM](windows-winrm.md) | Configure the client, Windows remoting, and credentials for direct dev access or a production store tunnel. | Windows, WinRM, PowerShell, WSL, sshuttle, credentials, dev, staging, production |
 | [Render MCP server configuration](mcp-servers.md) | Generate Codex and Hermes MCP config for all diagnose agents from one shared registry. | MCP, Codex, Hermes, registry, parity, Slack, Grafana |
 | [Slack history MCP server](slack-history-mcp.md) | Register the read-only Slack history MCP server so local diagnosis agents can read Slack threads. | Slack, MCP, Hermes, Codex, history, read-only |
+| [Google Drive RCA MCP server](google-drive-mcp.md) | Publish approved RCA reports as Google Docs in the shared RCA folder. | Google Drive, Google Docs, MCP, RCA, approvals |
 | [Slack debug agent](slack-debug-agent.md) | Run the private Slack diagnosis listener with Codex sandbox approvals, documentation PRs, and systemd. | Slack, Codex, Socket Mode, Ubuntu, systemd, approvals |
 
 To add a guide, copy [_TEMPLATE.md](_TEMPLATE.md) to `<topic>.md`, replace the example content, and add a link to this index.

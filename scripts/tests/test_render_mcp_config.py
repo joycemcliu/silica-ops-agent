@@ -21,13 +21,16 @@ def servers(env):
 
 class RenderTests(unittest.TestCase):
     def test_codex_output_is_valid_toml_with_all_servers(self):
-        parsed = tomllib.loads(render.render_codex(servers({"SLACK_HISTORY_CHANNELS": "C1"})))["mcp_servers"]
+        resolved = servers({"SLACK_HISTORY_CHANNELS": "C1", "RCA_GOOGLE_CREDENTIALS_FILE": "credentials/rca.json"})
+        parsed = tomllib.loads(render.render_codex(resolved))["mcp_servers"]
         self.assertEqual(
-            set(parsed), {"grafana_mcp_ops_dev", "grafana_mcp_ops_prod", "slack_history"}
+            set(parsed), {"grafana_mcp_ops_dev", "grafana_mcp_ops_prod", "slack_history", "google_drive_rca"}
         )
         self.assertEqual(parsed["slack_history"]["env"]["SLACK_HISTORY_CHANNELS"], "C1")
         self.assertEqual(parsed["grafana_mcp_ops_dev"]["http_headers"]["Host"], "localhost:60007")
         self.assertEqual(parsed["slack_history"]["tools"]["get_thread"]["approval_mode"], "approve")
+        self.assertEqual(parsed["google_drive_rca"]["default_tools_approval_mode"], "prompt")
+        self.assertEqual(parsed["google_drive_rca"]["env"]["RCA_GOOGLE_CREDENTIALS_FILE"], "credentials/rca.json")
 
     def test_unset_env_placeholder_is_omitted(self):
         env = dict(os.environ)
@@ -48,7 +51,7 @@ class RenderTests(unittest.TestCase):
 
     def test_hermes_output_names_match_codex(self):
         text = render.render_hermes(servers({"SLACK_HISTORY_CHANNELS": "C1"}))
-        for name in ("grafana_mcp_ops_dev", "grafana_mcp_ops_prod", "slack_history"):
+        for name in ("grafana_mcp_ops_dev", "grafana_mcp_ops_prod", "slack_history", "google_drive_rca"):
             self.assertIn(f"  {name}:", text)
 
 

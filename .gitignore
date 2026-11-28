@@ -22,5 +22,6 @@ __pycache__/
 /.venv/
 /slack-debug-agent/deploy/service.env
 /slack-debug-agent/state/
+/knowledge/rca/drafts/
 
 *.sqlite3

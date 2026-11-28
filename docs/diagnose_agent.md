@@ -39,4 +39,4 @@ A diagnosis is complete only after Phase B. Do not skip steps 6-9 unless the use
 
 ### Phase C: RCA report (optional, only when the user requests it)
 
-10. Phase B must be complete. Read [RCA guideline](../knowledge/rca/AGENTS.md) and follow it from start to finish.
+10. Phase B must be complete. Follow the [RCA guideline](../knowledge/rca/AGENTS.md), including approval before calling `google_drive_rca.create_rca_doc` to publish the Google Doc or save a local draft.

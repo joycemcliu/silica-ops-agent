@@ -1,0 +1,3 @@
+# Direct dependencies pinned; pip resolves transitive dependencies.
+mcp==1.30.0
+google-auth[requests]==2.63.1

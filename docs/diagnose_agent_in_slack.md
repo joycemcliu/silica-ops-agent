@@ -26,7 +26,7 @@ Follow `AGENTS.md` and the [shared diagnosis workflow](diagnose_agent.md) for in
 - Use `✅ **finished debugging**` only after Phase B has succeeded. End that report once with: "Want an RCA report as well?"
 - Treat "RCA", "write the RCA", "RCA report", or a yes to that offer as a request to run Phase B (if not already done), then Phase C. Do not run Phase C otherwise.
 - In Phase C, never post to the escalation channel. Give the developer the PM-required messages in this DM, exactly as the RCA guideline specifies. The "skip routine commentary" rule does not apply to them.
-- End Phase C with a DM listing the Google Doc link, the Notion ticket link (if any) and the PR link.
+- End Phase C with a DM listing the Google Doc link, the Notion ticket link (if any) and the PR link. In local mode, send the report path on the MCP host and state that Drive publication is pending.
 
 ### Approvals and production access
 

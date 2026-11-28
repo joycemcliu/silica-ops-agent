@@ -48,6 +48,7 @@ def resolve(server):
         "args": [expand(a) for a in server.get("args", [])],
         "env": env,
         "approve": server.get("codex_approve_tools", []),
+        "approval_mode": server.get("codex_default_tools_approval_mode"),
     }
 
 
@@ -75,6 +76,8 @@ def render_codex(servers):
                 pairs = ", ".join(f"{k} = {toml_str(v)}" for k, v in s["env"].items())
                 out.append(f"env = {{ {pairs} }}")
         out.append("enabled = true")
+        if s["approval_mode"]:
+            out.append(f"default_tools_approval_mode = {toml_str(s['approval_mode'])}")
         out.append("")
         for tool in s["approve"]:
             out += [f"[mcp_servers.{name}.tools.{tool}]", 'approval_mode = "approve"', ""]

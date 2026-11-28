@@ -4,7 +4,7 @@
 #
 # Placeholders: {repo} = this repository's root, {home} = $HOME,
 # {env:NAME} = value of environment variable NAME at render time (omitted if unset).
-# Servers must stay read-only; write actions belong behind the approval flow.
+# Use read-only servers for investigation. Phase C Drive writes require approval.
 
 [servers.grafana_mcp_ops_dev]
 type = "http"
@@ -25,3 +25,12 @@ codex_approve_tools = ["get_thread", "get_channel_history", "search_messages"]
 [servers.slack_history.env]
 SLACK_HISTORY_TOKEN_FILE = "{home}/.local/secrets/slack-history-token"
 SLACK_HISTORY_CHANNELS = "{env:SLACK_HISTORY_CHANNELS}"
+
+[servers.google_drive_rca]
+type = "stdio"
+command = "{repo}/.venv/bin/python"
+args = ["{repo}/mcp-servers/google-drive-mcp/google-drive-mcp.py"]
+codex_default_tools_approval_mode = "prompt"
+
+[servers.google_drive_rca.env]
+RCA_GOOGLE_CREDENTIALS_FILE = "{env:RCA_GOOGLE_CREDENTIALS_FILE}"

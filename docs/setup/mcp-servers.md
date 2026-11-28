@@ -11,7 +11,7 @@ tags: [mcp, codex, hermes, slack, grafana, setup]
 ## Prerequisites
 
 - Complete [Repo-local Python environment](setup-python-venv.md) (Python 3.11+ for `tomllib`).
-- Complete the setup of each server you enable, such as [Grafana MCP forwarding](grafana-mcp-forward.md) and [Slack history MCP server](slack-history-mcp.md).
+- Complete the setup of each server you enable, such as [Grafana MCP forwarding](grafana-mcp-forward.md), [Slack history MCP server](slack-history-mcp.md), and [Google Drive RCA MCP server](google-drive-mcp.md).
 
 ## Setup
 
